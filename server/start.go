@@ -12,10 +12,7 @@ import (
 	"github.com/tendermint/tendermint/abci/server"
 	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
 	cmn "github.com/tendermint/tendermint/libs/common"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/p2p"
-	pvm "github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
+	blsNode "github.com/tendermint/tendermint/node/bls"
 )
 
 // Tendermint full-node start flags
@@ -129,39 +126,35 @@ func startStandAlone(ctx *Context, appCreator AppCreator) error {
 	select {}
 }
 
-func startInProcess(ctx *Context, appCreator AppCreator) (*node.Node, error) {
+func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, error) {
 	cfg := ctx.Config
-	home := cfg.RootDir
 
-	traceWriterFile := viper.GetString(flagTraceStore)
-	db, err := openDB(home)
-	if err != nil {
-		return nil, err
-	}
+	// TODO: remove comments. Saved for better understanding of what's changed.
+	//home := cfg.RootDir
+	//
+	//traceWriterFile := viper.GetString(flagTraceStore)
+	//db, err := openDB(home)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//traceWriter, err := openTraceWriter(traceWriterFile)
+	//if err != nil {
+	//	return nil, err
+	//}
 
-	traceWriter, err := openTraceWriter(traceWriterFile)
-	if err != nil {
-		return nil, err
-	}
-
-	app := appCreator(ctx.Logger, db, traceWriter)
-
-	nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	if err != nil {
-		return nil, err
-	}
+	//app := appCreator(ctx.Logger, db, traceWriter)
+	//
+	//nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	UpgradeOldPrivValFile(cfg)
 
 	// create & start tendermint node
-	tmNode, err := node.NewNode(
+	tmNode, err := blsNode.NewBLSNodeForCosmos(
 		cfg,
-		pvm.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
-		nodeKey,
-		proxy.NewLocalClientCreator(app),
-		node.DefaultGenesisDocProviderFunc(cfg),
-		node.DefaultDBProvider,
-		node.DefaultMetricsProvider(cfg.Instrumentation),
 		ctx.Logger.With("module", "node"),
 	)
 	if err != nil {
