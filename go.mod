@@ -30,6 +30,10 @@ require (
 	gopkg.in/yaml.v2 v2.2.7
 )
 
-replace github.com/tendermint/tendermint => ./../tendermint
-
-replace github.com/corestario/dkglib => ./../dkglib
+replace (
+	github.com/corestario/cosmos-utils/client => ./../cosmos-utils/client
+	github.com/corestario/dkglib => ./../dkglib
+	github.com/cosmos/cosmos-sdk => ./
+	github.com/tendermint/tendermint => ./../tendermint
+	golang.org/x/crypto => github.com/tendermint/crypto v0.0.0-20180820045704-3764759f34a5
+)

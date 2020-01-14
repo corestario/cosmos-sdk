@@ -130,21 +130,21 @@ func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, erro
 	cfg := ctx.Config
 
 	// TODO: remove comments. Saved for better understanding of what's changed.
-	//home := cfg.RootDir
-	//
-	//traceWriterFile := viper.GetString(flagTraceStore)
-	//db, err := openDB(home)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
-	//traceWriter, err := openTraceWriter(traceWriterFile)
-	//if err != nil {
-	//	return nil, err
-	//}
+	home := cfg.RootDir
 
-	//app := appCreator(ctx.Logger, db, traceWriter)
-	//
+	traceWriterFile := viper.GetString(flagTraceStore)
+	db, err := openDB(home)
+	if err != nil {
+		return nil, err
+	}
+
+	traceWriter, err := openTraceWriter(traceWriterFile)
+	if err != nil {
+		return nil, err
+	}
+
+	app := appCreator(ctx.Logger, db, traceWriter)
+
 	//nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	//if err != nil {
 	//	return nil, err
@@ -152,10 +152,21 @@ func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, erro
 
 	UpgradeOldPrivValFile(cfg)
 
-	// create & start tendermint node
+	//tmNode, err := node.NewNode(
+	//	cfg,
+	//	pvm.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
+	//	nodeKey,
+	//	proxy.NewLocalClientCreator(app),
+	//	node.DefaultGenesisDocProviderFunc(cfg),
+	//	node.DefaultDBProvider,
+	//	node.DefaultMetricsProvider(cfg.Instrumentation),
+	//	ctx.Logger.With("module", "node"),
+	//)
+	//create & start tendermint node
 	tmNode, err := blsNode.NewBLSNodeForCosmos(
 		cfg,
 		ctx.Logger.With("module", "node"),
+		app,
 	)
 	if err != nil {
 		return nil, err
