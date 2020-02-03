@@ -146,23 +146,8 @@ func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, erro
 
 	app := appCreator(ctx.Logger, db, traceWriter)
 
-	//nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	UpgradeOldPrivValFile(cfg)
 
-	//tmNode, err := node.NewNode(
-	//	cfg,
-	//	pvm.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
-	//	nodeKey,
-	//	proxy.NewLocalClientCreator(app),
-	//	node.DefaultGenesisDocProviderFunc(cfg),
-	//	node.DefaultDBProvider,
-	//	node.DefaultMetricsProvider(cfg.Instrumentation),
-	//	ctx.Logger.With("module", "node"),
-	//)
 	//create & start tendermint node
 	tmNode, err := blsNode.NewBLSNodeForCosmos(
 		cfg,
