@@ -30,8 +30,6 @@ package module
 
 import (
 	"encoding/json"
-	"log"
-
 	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
@@ -272,7 +270,6 @@ func (m *Manager) InitGenesis(ctx sdk.Context, genesisData map[string]json.RawMe
 				panic("validator InitGenesis updates already set by a previous module")
 			}
 			validatorUpdates = moduleValUpdates
-			log.Printf("module name: %v,validator updated: %#+v", moduleName, validatorUpdates)
 		}
 	}
 	return abci.ResponseInitChain{
