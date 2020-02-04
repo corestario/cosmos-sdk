@@ -4,7 +4,6 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"runtime/pprof"
 
@@ -157,8 +156,6 @@ func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, erro
 	if err != nil {
 		return nil, err
 	}
-	n, vals := tmNode.ConsensusState().GetValidators()
-	log.Printf("validators count: %v, validators: %#+v", n, vals)
 	if err := tmNode.Start(); err != nil {
 		return nil, err
 	}
