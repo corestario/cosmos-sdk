@@ -28,16 +28,15 @@ func ExportGenesisFile(genDoc *tmtypes.GenesisDoc, genFile string) error {
 // ExportGenesisFileWithTime creates and writes the genesis configuration to disk.
 // An error is returned if building or writing the configuration to file fails.
 func ExportGenesisFileWithTime(
+	genDoc *tmtypes.GenesisDoc,
 	genFile, chainID string, validators []tmtypes.GenesisValidator,
 	appState json.RawMessage, genTime time.Time,
 ) error {
 
-	genDoc := tmtypes.GenesisDoc{
-		GenesisTime: genTime,
-		ChainID:     chainID,
-		Validators:  validators,
-		AppState:    appState,
-	}
+	genDoc.GenesisTime = genTime
+	genDoc.ChainID = chainID
+	genDoc.Validators = validators
+	genDoc.AppState = appState
 
 	if err := genDoc.ValidateAndComplete(); err != nil {
 		return err
