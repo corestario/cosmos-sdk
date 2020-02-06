@@ -4,6 +4,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/tendermint/tendermint/node"
 	"os"
 	"runtime/pprof"
 
@@ -126,7 +127,7 @@ func startStandAlone(ctx *Context, appCreator AppCreator) error {
 	select {}
 }
 
-func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, error) {
+func startInProcess(ctx *Context, appCreator AppCreator) (*node.Node, error) {
 	cfg := ctx.Config
 
 	// TODO: remove comments. Saved for better understanding of what's changed.
