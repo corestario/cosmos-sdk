@@ -12,6 +12,7 @@ import (
 	"github.com/tendermint/tendermint/abci/server"
 	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
 	cmn "github.com/tendermint/tendermint/libs/common"
+	"github.com/tendermint/tendermint/node"
 	blsNode "github.com/tendermint/tendermint/node/bls"
 )
 
@@ -126,7 +127,7 @@ func startStandAlone(ctx *Context, appCreator AppCreator) error {
 	select {}
 }
 
-func startInProcess(ctx *Context, appCreator AppCreator) (*blsNode.BLSNode, error) {
+func startInProcess(ctx *Context, appCreator AppCreator) (*node.Node, error) {
 	cfg := ctx.Config
 
 	// TODO: remove comments. Saved for better understanding of what's changed.
