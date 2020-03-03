@@ -144,7 +144,7 @@ type AppModule interface {
 
 	// ABCI
 	BeginBlock(sdk.Context, abci.RequestBeginBlock)
-	EndBlock(sdk.Context, abci.RequestEndBlock) []abci.ValidatorUpdate
+	EndBlock(sdk.Context, abci.RequestEndBlock) abci.ModuleEndBlock
 }
 
 //___________________________
@@ -180,8 +180,8 @@ func (gam GenesisOnlyAppModule) NewQuerierHandler() sdk.Querier { return nil }
 func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {}
 
 // EndBlock returns an empty module end-block
-func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
+func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) abci.ModuleEndBlock {
+	return abci.ModuleEndBlock{}
 }
 
 //____________________________________________________________________________
@@ -313,12 +313,12 @@ func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 
 		// use these validator updates if provided, the module manager assumes
 		// only one module will update the validator set
-		if len(moduleValUpdates) > 0 {
+		if len(moduleValUpdates.Validators) > 0 {
 			if len(validatorUpdates) > 0 {
 				panic("validator EndBlock updates already set by a previous module")
 			}
 
-			validatorUpdates = moduleValUpdates
+			validatorUpdates = moduleValUpdates.Validators
 		}
 	}
 
