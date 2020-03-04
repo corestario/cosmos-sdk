@@ -13,7 +13,7 @@ import (
 
 // Calculate the ValidatorUpdates for the current block
 // Called in each EndBlock
-func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
+func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) abci.ModuleEndBlock {
 	// Calculate validator set changes.
 	//
 	// NOTE: ApplyAndReturnValidatorSetUpdates has to come before
@@ -64,7 +64,10 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 		)
 	}
 
-	return validatorUpdates
+	endBlock := abci.ModuleEndBlock{
+		Validators: validatorUpdates,
+	}
+	return endBlock
 }
 
 // Apply and return accumulated updates to the bonded validator set. Also,

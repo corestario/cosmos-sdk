@@ -136,8 +136,8 @@ func (am AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 
 // EndBlock returns the end blocker for the supply module. It returns no validator
 // updates.
-func (AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
+func (AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) abci.ModuleEndBlock {
+	return abci.ModuleEndBlock{}
 }
 
 //____________________________________________________________________________
