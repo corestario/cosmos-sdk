@@ -251,6 +251,16 @@ to detail this new feature and how state transitions occur.
 * (x/gov) [\#5107](https://github.com/cosmos/cosmos-sdk/pull/5107) Sum validator operator's all voting power when tally votes
 * (rest) [\#5212](https://github.com/cosmos/cosmos-sdk/issues/5212) Fix pagination in the `/gov/proposals` handler.
 
+## v0.37.5/arcade - 2020-03-11
+
+### API breaking changes
+
+* (x/) [\#6](https://github.com/corestario/cosmos-sdk/pull/6) []abci.ValidatorUpdate in every EndBlock() replaced by abci.ModuleEndBlock for Reseeding support
+
+### Features 
+* (x/distribution) [\#4](https://github.com/corestario/cosmos-sdk/pull/4) Add distribution keeper options
+
+
 ## [v0.37.5] - 2020-01-07
 
 ### Features

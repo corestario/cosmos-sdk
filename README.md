@@ -16,6 +16,8 @@ parent:
 [![API Reference](https://godoc.org/github.com/cosmos/cosmos-sdk?status.svg)](https://godoc.org/github.com/cosmos/cosmos-sdk)
 [![riot.im](https://img.shields.io/badge/riot.im-JOIN%20CHAT-green.svg)](https://riot.im/app/#/room/#cosmos-sdk:matrix.org)
 
+#### It is a fork of the original Cosmos-SDK with some features for [Randapp](https://github.com/corestario/randapp) support 
+
 The Cosmos-SDK is a framework for building blockchain applications in Golang.
 It is being used to build [`Gaia`](https://github.com/cosmos/gaia), the first implementation of the Cosmos Hub.
 
