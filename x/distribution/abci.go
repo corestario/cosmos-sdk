@@ -23,7 +23,20 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 	// ref https://github.com/cosmos/cosmos-sdk/issues/3095
 	if ctx.BlockHeight() > 1 {
 		previousProposer := k.GetPreviousProposerConsAddr(ctx)
-		k.AllocateTokens(ctx, sumPreviousPrecommitPower, previousTotalPower, previousProposer, req.LastCommitInfo.GetVotes())
+		lastVotes := req.LastCommitInfo.GetVotes()
+
+		if power := k.GetDefaultValidatorPower(); power != 0 {
+			for k, v := range lastVotes {
+				k, v := k, v
+				v.Validator.Power = power
+
+				lastVotes[k] = v
+			}
+			sum := int64(len(lastVotes)) * power
+			sumPreviousPrecommitPower, previousTotalPower = sum, sum
+		}
+
+		k.AllocateTokens(ctx, sumPreviousPrecommitPower, previousTotalPower, previousProposer, lastVotes)
 	}
 
 	// record the proposer for when we payout on the next block

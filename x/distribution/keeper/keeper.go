@@ -23,13 +23,15 @@ type Keeper struct {
 	blacklistedAddrs map[string]bool
 
 	feeCollectorName string // name of the FeeCollector ModuleAccount
+
+	defaultValidatorPower int64
 }
 
 // NewKeeper creates a new distribution Keeper instance
 func NewKeeper(
 	cdc *codec.Codec, key sdk.StoreKey, paramSpace params.Subspace,
 	sk types.StakingKeeper, supplyKeeper types.SupplyKeeper, feeCollectorName string,
-	blacklistedAddrs map[string]bool,
+	blacklistedAddrs map[string]bool, options ...DistributionKeeperOptions,
 ) Keeper {
 
 	// ensure distribution module account is set
@@ -37,7 +39,7 @@ func NewKeeper(
 		panic(fmt.Sprintf("%s module account has not been set", types.ModuleName))
 	}
 
-	return Keeper{
+	k := Keeper{
 		storeKey:         key,
 		cdc:              cdc,
 		paramSpace:       paramSpace.WithKeyTable(ParamKeyTable()),
@@ -46,6 +48,10 @@ func NewKeeper(
 		feeCollectorName: feeCollectorName,
 		blacklistedAddrs: blacklistedAddrs,
 	}
+	for _, option := range options {
+		option(&k)
+	}
+	return k
 }
 
 // Logger returns a module-specific logger.
@@ -165,4 +171,16 @@ func (k Keeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.
 	k.SetFeePool(ctx, feePool)
 
 	return nil
+}
+
+type DistributionKeeperOptions func(k *Keeper)
+
+func DefaultValidatorPower(power int64) DistributionKeeperOptions {
+	return func(k *Keeper) {
+		k.defaultValidatorPower = power
+	}
+}
+
+func (k Keeper) GetDefaultValidatorPower() int64 {
+	return k.defaultValidatorPower
 }
