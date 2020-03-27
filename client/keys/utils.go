@@ -60,7 +60,7 @@ func NewKeyringFromDir(rootDir string, input io.Reader, opts ...keys.KeybaseOpti
 	case flags.KeyringBackendFile:
 		return keys.NewKeyringFile(sdk.GetConfig().GetKeyringServiceName(), rootDir, input, opts...)
 	case flags.KeyringBackendOS:
-		return keys.NewKeyring(sdk.GetConfig().GetKeyringServiceName(), rootDir, input, opts...)
+		return keys.NewKeyring(sdk.GetConfig().GetKeyringServiceName(), viper.GetString(flags.FlagKeyringBackend), rootDir, input, opts...)
 	}
 	return nil, fmt.Errorf("unknown keyring backend %q", keyringBackend)
 }

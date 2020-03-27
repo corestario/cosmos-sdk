@@ -31,6 +31,19 @@ const (
 	testKeyringDirName = "keyring-test"
 )
 
+const (
+	BackendFile    = "file"
+	BackendOS      = "os"
+	BackendKWallet = "kwallet"
+	BackendPass    = "pass"
+	BackendTest    = "test"
+)
+
+const (
+	keyringDirNameFmt     = "keyring-%s"
+	testKeyringDirNameFmt = "keyring-test-%s"
+)
+
 var _ Keybase = keyringKeybase{}
 
 // keyringKeybase implements the Keybase interface by using the Keyring library
@@ -45,9 +58,26 @@ var maxPassphraseEntryAttempts = 3
 // NewKeyring creates a new instance of a keyring. Keybase
 // options can be applied when generating this new Keybase.
 func NewKeyring(
-	name string, dir string, userInput io.Reader, opts ...KeybaseOption,
+	appName, backend, rootDir string, userInput io.Reader, opts ...KeybaseOption,
 ) (Keybase, error) {
-	db, err := keyring.Open(lkbToKeyringConfig(name, dir, userInput, false))
+
+	var db keyring.Keyring
+	var err error
+
+	switch backend {
+	case BackendTest:
+		db, err = keyring.Open(lkbToKeyringConfig(appName, rootDir, nil, true))
+	case BackendFile:
+		db, err = keyring.Open(newFileBackendKeyringConfig(appName, rootDir, userInput))
+	case BackendOS:
+		db, err = keyring.Open(lkbToKeyringConfig(appName, rootDir, userInput, false))
+	case BackendKWallet:
+		db, err = keyring.Open(newKWalletBackendKeyringConfig(appName, rootDir, userInput))
+	case BackendPass:
+		db, err = keyring.Open(newPassBackendKeyringConfig(appName, rootDir, userInput))
+	default:
+		return nil, fmt.Errorf("unknown keyring backend %v", backend)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -495,6 +525,24 @@ func newFileBackendKeyringConfig(name, dir string, buf io.Reader) keyring.Config
 		ServiceName:      name,
 		FileDir:          fileDir,
 		FilePasswordFunc: newRealPrompt(fileDir, buf),
+	}
+}
+
+func newKWalletBackendKeyringConfig(appName, _ string, _ io.Reader) keyring.Config {
+	return keyring.Config{
+		AllowedBackends: []keyring.BackendType{keyring.KWalletBackend},
+		ServiceName:     "kdewallet",
+		KWalletAppID:    appName,
+		KWalletFolder:   "",
+	}
+}
+
+func newPassBackendKeyringConfig(appName, dir string, _ io.Reader) keyring.Config {
+	prefix := filepath.Join(dir, fmt.Sprintf(keyringDirNameFmt, appName))
+	return keyring.Config{
+		AllowedBackends: []keyring.BackendType{keyring.PassBackend},
+		ServiceName:     appName,
+		PassPrefix:      prefix,
 	}
 }
 
