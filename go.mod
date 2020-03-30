@@ -7,7 +7,6 @@ require (
 	github.com/bartekn/go-bip39 v0.0.0-20171116152956-a05967ea095d
 	github.com/bgentry/speakeasy v0.1.0
 	github.com/btcsuite/btcd v0.0.0-20190115013929-ed77733ec07d
-	github.com/corestario/cosmos-utils/client v0.1.0
 	github.com/cosmos/go-bip39 v0.0.0-20180618194314-52158e4697b8
 	github.com/cosmos/ledger-cosmos-go v0.11.1
 	github.com/gogo/protobuf v1.3.1
@@ -32,8 +31,7 @@ require (
 )
 
 replace (
-	github.com/corestario/dkglib => ./../dkglib
-	github.com/cosmos/cosmos-sdk => ./
 	github.com/tendermint/tendermint => ./../tendermint
+	go.dedis.ch/kyber/v3 => github.com/corestario/kyber/v3 v3.0.0-20200218082721-8ed10c357c05
 	golang.org/x/crypto => github.com/tendermint/crypto v0.0.0-20180820045704-3764759f34a5
 )
