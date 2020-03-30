@@ -28,10 +28,10 @@ require (
 	github.com/tendermint/tendermint v0.32.8
 	github.com/tendermint/tm-db v0.3.0
 	gopkg.in/yaml.v2 v2.2.7
+	github.com/corestario/cosmos-utils/client master
 )
 
 replace (
-	github.com/corestario/cosmos-utils/client => ./../cosmos-utils/client
 	github.com/corestario/dkglib => ./../dkglib
 	github.com/cosmos/cosmos-sdk => ./
 	github.com/tendermint/tendermint => ./../tendermint
