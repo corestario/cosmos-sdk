@@ -28,7 +28,7 @@ require (
 	github.com/tendermint/tendermint v0.32.8
 	github.com/tendermint/tm-db v0.3.0
 	gopkg.in/yaml.v2 v2.2.7
-	github.com/corestario/cosmos-utils/client master
+	github.com/corestario/cosmos-utils/client latest
 )
 
 replace (
