@@ -31,7 +31,7 @@ require (
 )
 
 replace (
-	github.com/tendermint/tendermint => ./../tendermint
+	github.com/tendermint/tendermint => github.com/corestario/tendermint v0.5.0
 	go.dedis.ch/kyber/v3 => github.com/corestario/kyber/v3 v3.0.0-20200218082721-8ed10c357c05
 	golang.org/x/crypto => github.com/tendermint/crypto v0.0.0-20180820045704-3764759f34a5
 )

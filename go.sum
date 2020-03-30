@@ -43,6 +43,7 @@ github.com/corestario/dkglib v1.0.4 h1:MCT0Abx2NEi3FLaotog0hbibaIzmhMJlI5lSBIG7W
 github.com/corestario/dkglib v1.0.4/go.mod h1:KYYI9WN4850zC3UMBJ2OX7z3fLvHIM4rwCBd+yQJqkc=
 github.com/corestario/kyber/v3 v3.0.0-20200218082721-8ed10c357c05 h1:ICuDs+sbQzDem2pIAFyI+u6s0RiETzMc2IhnobgHkvE=
 github.com/corestario/kyber/v3 v3.0.0-20200218082721-8ed10c357c05/go.mod h1:kXy7p3STAurkADD+/aZcsznZGKVHEqbtmdIzvPfrs1U=
+github.com/corestario/tendermint v0.5.0/go.mod h1:sx8+AUQRtqyoqf241ehiwC4EyHmhCrMaycvKQ8X8Z3k=
 github.com/cosmos/cosmos-sdk v0.28.2-0.20190827131926-5aacf454e1b6/go.mod h1:2Wh83L2ncI6JHjbOb4BWEuuNUUFLK/IOdDBVpIw3SCY=
 github.com/cosmos/go-bip39 v0.0.0-20180618194314-52158e4697b8 h1:Iwin12wRQtyZhH6FV3ykFcdGNlYEzoeR0jN8Vn+JWsI=
 github.com/cosmos/go-bip39 v0.0.0-20180618194314-52158e4697b8/go.mod h1:tSxLoYXyBmiFeKpvmq4dzayMdCjCnu8uqmCysIGBT2Y=
