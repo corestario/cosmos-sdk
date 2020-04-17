@@ -30,6 +30,7 @@ package module
 
 import (
 	"encoding/json"
+
 	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
@@ -306,10 +307,12 @@ func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 // modules.
 func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	validatorUpdates := []abci.ValidatorUpdate{}
+	var validatorUpdates []abci.ValidatorUpdate
+	var seed []byte
 
 	for _, moduleName := range m.OrderEndBlockers {
-		moduleValUpdates := m.Modules[moduleName].EndBlock(ctx, req)
+		moduleEndBlock := m.Modules[moduleName].EndBlock(ctx, req)
+		moduleValUpdates := moduleEndBlock.Validators
 
 		// use these validator updates if provided, the module manager assumes
 		// only one module will update the validator set
@@ -320,6 +323,15 @@ func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 
 			validatorUpdates = moduleValUpdates.Validators
 		}
+
+		if len(moduleEndBlock.Seed) > 0 {
+			if len(seed) > 0 {
+				panic("seed EndBlock updates already set by a previous module")
+			}
+
+			seed = moduleEndBlock.Seed
+		}
+
 	}
 
 	return abci.ResponseEndBlock{
