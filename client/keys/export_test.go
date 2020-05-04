@@ -6,40 +6,35 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/tests"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 func Test_runExportCmd(t *testing.T) {
-	runningUnattended := isRunningUnattended()
 	exportKeyCommand := ExportKeyCommand()
 	mockIn, _, _ := tests.ApplyMockIO(exportKeyCommand)
 
 	// Now add a temporary keybase
 	kbHome, cleanUp := tests.NewTestCaseDir(t)
-	defer cleanUp()
+	t.Cleanup(cleanUp)
 	viper.Set(flags.FlagHome, kbHome)
 
 	// create a key
-	kb, err := NewKeyringFromHomeFlag(mockIn)
+	kb, err := keyring.New(sdk.KeyringServiceName(), viper.GetString(flags.FlagKeyringBackend), kbHome, mockIn)
 	require.NoError(t, err)
-	if !runningUnattended {
-		defer func() {
-			kb.Delete("keyname1", "", false)
-		}()
-	}
+	t.Cleanup(func() {
+		kb.Delete("keyname1") // nolint:errcheck
+	})
 
-	if runningUnattended {
-		mockIn.Reset("testpass1\ntestpass1\n")
-	}
-	_, err = kb.CreateAccount("keyname1", tests.TestMnemonic, "", "123456789", 0, 0)
+	path := sdk.GetConfig().GetFullFundraiserPath()
+	_, err = kb.NewAccount("keyname1", tests.TestMnemonic, "", path, hd.Secp256k1)
 	require.NoError(t, err)
 
 	// Now enter password
-	if runningUnattended {
-		mockIn.Reset("123456789\n123456789\ntestpass1\n")
-	} else {
-		mockIn.Reset("123456789\n123456789\n")
-	}
+	mockIn.Reset("123456789\n123456789\n")
 	require.NoError(t, runExportCmd(exportKeyCommand, []string{"keyname1"}))
 }

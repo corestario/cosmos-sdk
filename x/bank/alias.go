@@ -3,15 +3,13 @@ package bank
 // nolint
 
 import (
-	"github.com/cosmos/cosmos-sdk/x/bank/internal/keeper"
-	"github.com/cosmos/cosmos-sdk/x/bank/internal/types"
+	"github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	"github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
 const (
-	QueryBalance       = keeper.QueryBalance
-	ModuleName         = types.ModuleName
-	QuerierRoute       = types.QuerierRoute
-	RouterKey          = types.RouterKey
+	QueryBalance       = types.QueryBalance
+	QueryAllBalances   = types.QueryAllBalances
 	DefaultParamspace  = types.DefaultParamspace
 	DefaultSendEnabled = types.DefaultSendEnabled
 
@@ -19,6 +17,11 @@ const (
 	AttributeKeyRecipient  = types.AttributeKeyRecipient
 	AttributeKeySender     = types.AttributeKeySender
 	AttributeValueCategory = types.AttributeValueCategory
+
+	ModuleName   = types.ModuleName
+	StoreKey     = types.StoreKey
+	RouterKey    = types.RouterKey
+	QuerierRoute = types.QuerierRoute
 )
 
 var (
@@ -35,7 +38,8 @@ var (
 	ErrSendDisabled             = types.ErrSendDisabled
 	NewGenesisState             = types.NewGenesisState
 	DefaultGenesisState         = types.DefaultGenesisState
-	ValidateGenesis             = types.ValidateGenesis
+	SanitizeGenesisBalances     = types.SanitizeGenesisBalances
+	GetGenesisStateFromAppState = types.GetGenesisStateFromAppState
 	NewMsgSend                  = types.NewMsgSend
 	NewMsgMultiSend             = types.NewMsgMultiSend
 	NewInput                    = types.NewInput
@@ -43,21 +47,33 @@ var (
 	ValidateInputsOutputs       = types.ValidateInputsOutputs
 	ParamKeyTable               = types.ParamKeyTable
 	NewQueryBalanceParams       = types.NewQueryBalanceParams
+	NewQueryAllBalancesParams   = types.NewQueryAllBalancesParams
 	ModuleCdc                   = types.ModuleCdc
 	ParamStoreKeySendEnabled    = types.ParamStoreKeySendEnabled
+	BalancesPrefix              = types.BalancesPrefix
+	AddressFromBalancesStore    = types.AddressFromBalancesStore
+	AllInvariants               = keeper.AllInvariants
+	TotalSupply                 = keeper.TotalSupply
+	NewSupply                   = types.NewSupply
+	DefaultSupply               = types.DefaultSupply
 )
 
 type (
-	Keeper             = keeper.Keeper
-	BaseKeeper         = keeper.BaseKeeper
-	SendKeeper         = keeper.SendKeeper
-	BaseSendKeeper     = keeper.BaseSendKeeper
-	ViewKeeper         = keeper.ViewKeeper
-	BaseViewKeeper     = keeper.BaseViewKeeper
-	GenesisState       = types.GenesisState
-	MsgSend            = types.MsgSend
-	MsgMultiSend       = types.MsgMultiSend
-	Input              = types.Input
-	Output             = types.Output
-	QueryBalanceParams = types.QueryBalanceParams
+	BaseKeeper              = keeper.BaseKeeper
+	SendKeeper              = keeper.SendKeeper
+	BaseSendKeeper          = keeper.BaseSendKeeper
+	ViewKeeper              = keeper.ViewKeeper
+	BaseViewKeeper          = keeper.BaseViewKeeper
+	Balance                 = types.Balance
+	MsgSend                 = types.MsgSend
+	MsgMultiSend            = types.MsgMultiSend
+	Input                   = types.Input
+	Output                  = types.Output
+	QueryBalanceParams      = types.QueryBalanceParams
+	QueryAllBalancesParams  = types.QueryAllBalancesParams
+	GenesisBalancesIterator = types.GenesisBalancesIterator
+	Keeper                  = keeper.Keeper
+	GenesisState            = types.GenesisState
+	Supply                  = types.Supply
+	Codec                   = types.Codec
 )

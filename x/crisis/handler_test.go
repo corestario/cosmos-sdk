@@ -11,10 +11,10 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	distr "github.com/cosmos/cosmos-sdk/x/distribution"
 	"github.com/cosmos/cosmos-sdk/x/staking"
-	"github.com/cosmos/cosmos-sdk/x/supply"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 
 func createTestApp() (*simapp.SimApp, sdk.Context, []sdk.AccAddress) {
 	db := dbm.NewMemDB()
-	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, 1)
+	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 1)
 	ctx := app.NewContext(true, abci.Header{})
 
 	constantFee := sdk.NewInt64Coin(sdk.DefaultBondDenom, 10)
@@ -38,7 +38,7 @@ func createTestApp() (*simapp.SimApp, sdk.Context, []sdk.AccAddress) {
 	feePool := distr.InitialFeePool()
 	feePool.CommunityPool = sdk.NewDecCoinsFromCoins(sdk.NewCoins(constantFee)...)
 	app.DistrKeeper.SetFeePool(ctx, feePool)
-	app.SupplyKeeper.SetSupply(ctx, supply.NewSupply(sdk.Coins{}))
+	app.BankKeeper.SetSupply(ctx, bank.NewSupply(sdk.Coins{}))
 
 	addrs := simapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(10000))
 
@@ -80,7 +80,7 @@ func TestHandleMsgVerifyInvariant(t *testing.T) {
 
 			case "panic":
 				require.Panics(t, func() {
-					h(ctx, tc.msg)
+					h(ctx, tc.msg) // nolint:errcheck
 				})
 			}
 		})
@@ -90,7 +90,7 @@ func TestHandleMsgVerifyInvariant(t *testing.T) {
 func TestHandleMsgVerifyInvariantWithNotEnoughSenderCoins(t *testing.T) {
 	app, ctx, addrs := createTestApp()
 	sender := addrs[0]
-	coin := app.AccountKeeper.GetAccount(ctx, sender).GetCoins()[0]
+	coin := app.BankKeeper.GetAllBalances(ctx, sender)[0]
 	excessCoins := sdk.NewCoin(coin.Denom, coin.Amount.AddRaw(1))
 	app.CrisisKeeper.SetConstantFee(ctx, excessCoins)
 

@@ -1,13 +1,16 @@
-# run:
+run:
+  tests: false
 #   # timeout for analysis, e.g. 30s, 5m, default is 1m
 #   timeout: 5m
 
 linters:
+  disable-all: true
   enable:
     - bodyclose
     - deadcode
     - depguard
     - dogsled
+    # - errcheck
     - goconst
     - gocritic
     - gofmt
@@ -30,8 +33,7 @@ linters:
     - unconvert
     - unused
     - misspell
-  disable:
-    - errcheck
+    - wsl
 
 issues:
   exclude-rules:
@@ -45,6 +47,11 @@ issues:
       linters:
         - golint
     - text: "ST1003:"
+      linters:
+        - stylecheck
+    # FIXME: Disabled until golangci-lint updates stylecheck with this fix:
+    # https://github.com/dominikh/go-tools/issues/389
+    - text: "ST1016:"
       linters:
         - stylecheck
 

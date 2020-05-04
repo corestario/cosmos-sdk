@@ -5,10 +5,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	crkeys "github.com/cosmos/cosmos-sdk/crypto/keys"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/tests"
+	"github.com/cosmos/cosmos-sdk/types"
 )
 
 func TestGenerateCoinKey(t *testing.T) {
@@ -17,7 +18,7 @@ func TestGenerateCoinKey(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test creation
-	info, err := keys.NewInMemoryKeyBase().CreateAccount("xxx", mnemonic, "", "012345678", 0, 0)
+	info, err := keyring.NewInMemory().NewAccount("xxx", mnemonic, "", hd.NewFundraiserParams(0, types.GetConfig().GetCoinType(), 0).String(), hd.Secp256k1)
 	require.NoError(t, err)
 	require.Equal(t, addr, info.GetAddress())
 }
@@ -25,21 +26,21 @@ func TestGenerateCoinKey(t *testing.T) {
 func TestGenerateSaveCoinKey(t *testing.T) {
 	t.Parallel()
 	dir, cleanup := tests.NewTestCaseDir(t)
-	defer cleanup() // clean after itself
+	t.Cleanup(cleanup)
 
-	kb, err := crkeys.NewTestKeyring(t.Name(), dir)
+	kb, err := keyring.New(t.Name(), "test", dir, nil)
 	require.NoError(t, err)
 
 	addr, mnemonic, err := server.GenerateSaveCoinKey(kb, "keyname", "012345678", false)
 	require.NoError(t, err)
 
 	// Test key was actually saved
-	info, err := kb.Get("keyname")
+	info, err := kb.Key("keyname")
 	require.NoError(t, err)
 	require.Equal(t, addr, info.GetAddress())
 
 	// Test in-memory recovery
-	info, err = keys.NewInMemoryKeyBase().CreateAccount("xxx", mnemonic, "", "012345678", 0, 0)
+	info, err = keyring.NewInMemory().NewAccount("xxx", mnemonic, "", hd.NewFundraiserParams(0, types.GetConfig().GetCoinType(), 0).String(), hd.Secp256k1)
 	require.NoError(t, err)
 	require.Equal(t, addr, info.GetAddress())
 }
@@ -47,9 +48,9 @@ func TestGenerateSaveCoinKey(t *testing.T) {
 func TestGenerateSaveCoinKeyOverwriteFlag(t *testing.T) {
 	t.Parallel()
 	dir, cleanup := tests.NewTestCaseDir(t)
-	defer cleanup() // clean after itself
+	t.Cleanup(cleanup)
 
-	kb, err := crkeys.NewTestKeyring(t.Name(), dir)
+	kb, err := keyring.New(t.Name(), "test", dir, nil)
 	require.NoError(t, err)
 
 	keyname := "justakey"

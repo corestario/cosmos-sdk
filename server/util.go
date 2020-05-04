@@ -19,7 +19,6 @@ import (
 	"github.com/tendermint/tendermint/libs/cli"
 	tmflags "github.com/tendermint/tendermint/libs/cli/flags"
 	"github.com/tendermint/tendermint/libs/log"
-	pvm "github.com/tendermint/tendermint/privval"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -91,7 +90,7 @@ func interceptLoadConfig() (conf *cfg.Config, err error) {
 		conf.ProfListenAddress = "localhost:6060"
 		conf.P2P.RecvRate = 5120000
 		conf.P2P.SendRate = 5120000
-		conf.TxIndex.IndexAllTags = true
+		conf.TxIndex.IndexAllKeys = true
 		conf.Consensus.TimeoutCommit = 5 * time.Second
 		cfg.WriteConfigFile(configFilePath, conf)
 		// Fall through, just so that its parsed into memory.
@@ -118,7 +117,7 @@ func interceptLoadConfig() (conf *cfg.Config, err error) {
 
 // add server commands
 func AddCommands(
-	ctx *Context, cdc *codec.Codec,
+	ctx *Context, cdc codec.JSONMarshaler,
 	rootCmd *cobra.Command,
 	appCreator AppCreator, appExport AppExporter) {
 
@@ -154,7 +153,7 @@ func AddCommands(
 //
 // NOTE: The ordering of the keys returned as the resulting JSON message is
 // non-deterministic, so the client should not rely on key ordering.
-func InsertKeyJSON(cdc *codec.Codec, baseJSON []byte, key string, value json.RawMessage) ([]byte, error) {
+func InsertKeyJSON(cdc codec.JSONMarshaler, baseJSON []byte, key string, value json.RawMessage) ([]byte, error) {
 	var jsonMap map[string]json.RawMessage
 
 	if err := cdc.UnmarshalJSON(baseJSON, &jsonMap); err != nil {
@@ -215,16 +214,6 @@ func TrapSignal(cleanupFunc func()) {
 		}
 		os.Exit(exitCode)
 	}()
-}
-
-// UpgradeOldPrivValFile converts old priv_validator.json file (prior to Tendermint 0.28)
-// to the new priv_validator_key.json and priv_validator_state.json files.
-func UpgradeOldPrivValFile(config *cfg.Config) {
-	if _, err := os.Stat(config.OldPrivValidatorFile()); !os.IsNotExist(err) {
-		if oldFilePV, err := pvm.LoadOldFilePV(config.OldPrivValidatorFile()); err == nil {
-			oldFilePV.Upgrade(config.PrivValidatorKeyFile(), config.PrivValidatorStateFile())
-		}
-	}
 }
 
 func skipInterface(iface net.Interface) bool {

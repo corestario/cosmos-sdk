@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/context"
@@ -14,16 +15,12 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth/client/utils"
+	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
-
-	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 const (
 	flagEvents = "events"
-	flagPage   = "page"
-	flagLimit  = "limit"
 
 	eventFormat = "{eventType}.{eventAttribute}={value}"
 )
@@ -38,9 +35,43 @@ func GetQueryCmd(cdc *codec.Codec) *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 
-	cmd.AddCommand(GetAccountCmd(cdc))
+	cmd.AddCommand(
+		GetAccountCmd(cdc),
+		QueryParamsCmd(cdc),
+	)
 
 	return cmd
+}
+
+// QueryParamsCmd returns the command handler for evidence parameter querying.
+func QueryParamsCmd(cdc *codec.Codec) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "params",
+		Short: "Query the current auth parameters",
+		Args:  cobra.NoArgs,
+		Long: strings.TrimSpace(`Query the current auth parameters:
+
+$ <appcli> query auth params
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cliCtx := context.NewCLIContext().WithCodec(cdc)
+
+			route := fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryParams)
+			res, _, err := cliCtx.QueryWithData(route, nil)
+			if err != nil {
+				return err
+			}
+
+			var params types.Params
+			if err := cdc.UnmarshalJSON(res, &params); err != nil {
+				return fmt.Errorf("failed to unmarshal params: %w", err)
+			}
+
+			return cliCtx.PrintOutput(params)
+		},
+	}
+
+	return flags.GetCommands(cmd)[0]
 }
 
 // GetAccountCmd returns a query account that will display the state of the
@@ -48,11 +79,11 @@ func GetQueryCmd(cdc *codec.Codec) *cobra.Command {
 func GetAccountCmd(cdc *codec.Codec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account [address]",
-		Short: "Query account balance",
+		Short: "Query for account by address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cliCtx := context.NewCLIContext().WithCodec(cdc)
-			accGetter := types.NewAccountRetriever(cliCtx)
+			accGetter := types.NewAccountRetriever(authclient.Codec, cliCtx)
 
 			key, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
@@ -116,11 +147,11 @@ $ %s query txs --%s 'message.sender=cosmos1...&message.action=withdraw_delegator
 				tmEvents = append(tmEvents, event)
 			}
 
-			page := viper.GetInt(flagPage)
-			limit := viper.GetInt(flagLimit)
+			page := viper.GetInt(flags.FlagPage)
+			limit := viper.GetInt(flags.FlagLimit)
 
 			cliCtx := context.NewCLIContext().WithCodec(cdc)
-			txs, err := utils.QueryTxsByEvents(cliCtx, tmEvents, page, limit)
+			txs, err := authclient.QueryTxsByEvents(cliCtx, tmEvents, page, limit, "")
 			if err != nil {
 				return err
 			}
@@ -147,9 +178,12 @@ $ %s query txs --%s 'message.sender=cosmos1...&message.action=withdraw_delegator
 	cmd.Flags().Bool(flags.FlagTrustNode, false, "Trust connected full node (don't verify proofs for responses)")
 	viper.BindPFlag(flags.FlagTrustNode, cmd.Flags().Lookup(flags.FlagTrustNode))
 
+	cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
+	viper.BindPFlag(flags.FlagKeyringBackend, cmd.Flags().Lookup(flags.FlagKeyringBackend))
+
 	cmd.Flags().String(flagEvents, "", fmt.Sprintf("list of transaction events in the form of %s", eventFormat))
-	cmd.Flags().Uint32(flagPage, rest.DefaultPage, "Query a specific page of paginated results")
-	cmd.Flags().Uint32(flagLimit, rest.DefaultLimit, "Query number of transactions results per page returned")
+	cmd.Flags().Uint32(flags.FlagPage, rest.DefaultPage, "Query a specific page of paginated results")
+	cmd.Flags().Uint32(flags.FlagLimit, rest.DefaultLimit, "Query number of transactions results per page returned")
 	cmd.MarkFlagRequired(flagEvents)
 
 	return cmd
@@ -164,7 +198,7 @@ func QueryTxCmd(cdc *codec.Codec) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cliCtx := context.NewCLIContext().WithCodec(cdc)
 
-			output, err := utils.QueryTx(cliCtx, args[0])
+			output, err := authclient.QueryTx(cliCtx, args[0])
 			if err != nil {
 				return err
 			}
@@ -181,6 +215,8 @@ func QueryTxCmd(cdc *codec.Codec) *cobra.Command {
 	viper.BindPFlag(flags.FlagNode, cmd.Flags().Lookup(flags.FlagNode))
 	cmd.Flags().Bool(flags.FlagTrustNode, false, "Trust connected full node (don't verify proofs for responses)")
 	viper.BindPFlag(flags.FlagTrustNode, cmd.Flags().Lookup(flags.FlagTrustNode))
+	cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
+	viper.BindPFlag(flags.FlagKeyringBackend, cmd.Flags().Lookup(flags.FlagKeyringBackend))
 
 	return cmd
 }

@@ -1,23 +1,17 @@
 package baseapp
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"reflect"
 	"runtime/debug"
 	"strings"
 
-	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -27,17 +21,10 @@ const (
 	runTxModeReCheck                   // Recheck a (pending) transaction after a commit
 	runTxModeSimulate                  // Simulate a transaction
 	runTxModeDeliver                   // Deliver a transaction
-
-	// MainStoreKey is the string representation of the main store
-	MainStoreKey = "main"
 )
 
 var (
 	_ abci.Application = (*BaseApp)(nil)
-
-	// mainConsensusParamsKey defines a key to store the consensus params in the
-	// main store.
-	mainConsensusParamsKey = []byte("consensus_params")
 )
 
 type (
@@ -63,9 +50,6 @@ type BaseApp struct { // nolint: maligned
 	queryRouter sdk.QueryRouter      // router for redirecting query calls
 	txDecoder   sdk.TxDecoder        // unmarshal []byte into sdk.Tx
 
-	// set upon LoadVersion or LoadLatestVersion.
-	baseKey *sdk.KVStoreKey // Main KVStore in cms
-
 	anteHandler    sdk.AnteHandler  // ante handler for fee and auth
 	initChainer    sdk.InitChainer  // initialize state with validators and state blob
 	beginBlocker   sdk.BeginBlocker // logic to run before any txs
@@ -87,9 +71,9 @@ type BaseApp struct { // nolint: maligned
 	// absent validators from begin block
 	voteInfos []abci.VoteInfo
 
-	// consensus params
-	// TODO: Move this in the future to baseapp param store on main store.
-	consensusParams *abci.ConsensusParams
+	// paramStore is used to query for ABCI consensus parameters from an
+	// application parameter store.
+	paramStore ParamStore
 
 	// The minimum gas prices a validator is willing to accept for processing a
 	// transaction. This is mainly used for DoS and spam prevention.
@@ -116,7 +100,6 @@ type BaseApp struct { // nolint: maligned
 func NewBaseApp(
 	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, options ...func(*BaseApp),
 ) *BaseApp {
-
 	app := &BaseApp{
 		logger:         logger,
 		name:           name,
@@ -128,6 +111,7 @@ func NewBaseApp(
 		txDecoder:      txDecoder,
 		fauxMerkleMode: false,
 	}
+
 	for _, option := range options {
 		option(app)
 	}
@@ -199,6 +183,14 @@ func (app *BaseApp) MountTransientStores(keys map[string]*sdk.TransientStoreKey)
 	}
 }
 
+// MountMemoryStores mounts all in-memory KVStores with the BaseApp's internal
+// commit multi-store.
+func (app *BaseApp) MountMemoryStores(keys map[string]*sdk.MemoryStoreKey) {
+	for _, memKey := range keys {
+		app.MountStore(memKey, sdk.StoreTypeMemory)
+	}
+}
+
 // MountStoreWithDB mounts a store to the provided key in the BaseApp
 // multistore, using a specified DB.
 func (app *BaseApp) MountStoreWithDB(key sdk.StoreKey, typ sdk.StoreType, db dbm.DB) {
@@ -213,12 +205,13 @@ func (app *BaseApp) MountStore(key sdk.StoreKey, typ sdk.StoreType) {
 
 // LoadLatestVersion loads the latest application version. It will panic if
 // called more than once on a running BaseApp.
-func (app *BaseApp) LoadLatestVersion(baseKey *sdk.KVStoreKey) error {
+func (app *BaseApp) LoadLatestVersion() error {
 	err := app.storeLoader(app.cms)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load latest version: %w", err)
 	}
-	return app.initFromMainStore(baseKey)
+
+	return app.init()
 }
 
 // DefaultStoreLoader will be used by default and loads the latest version
@@ -226,70 +219,15 @@ func DefaultStoreLoader(ms sdk.CommitMultiStore) error {
 	return ms.LoadLatestVersion()
 }
 
-// StoreLoaderWithUpgrade is used to prepare baseapp with a fixed StoreLoader
-// pattern. This is useful in test cases, or with custom upgrade loading logic.
-func StoreLoaderWithUpgrade(upgrades *storetypes.StoreUpgrades) StoreLoader {
-	return func(ms sdk.CommitMultiStore) error {
-		return ms.LoadLatestVersionAndUpgrade(upgrades)
-	}
-}
-
-// UpgradeableStoreLoader can be configured by SetStoreLoader() to check for the
-// existence of a given upgrade file - json encoded StoreUpgrades data.
-//
-// If not file is present, it will peform the default load (no upgrades to store).
-//
-// If the file is present, it will parse the file and execute those upgrades
-// (rename or delete stores), while loading the data. It will also delete the
-// upgrade file upon successful load, so that the upgrade is only applied once,
-// and not re-applied on next restart
-//
-// This is useful for in place migrations when a store key is renamed between
-// two versions of the software. (TODO: this code will move to x/upgrades
-// when PR #4233 is merged, here mainly to help test the design)
-func UpgradeableStoreLoader(upgradeInfoPath string) StoreLoader {
-	return func(ms sdk.CommitMultiStore) error {
-		_, err := os.Stat(upgradeInfoPath)
-		if os.IsNotExist(err) {
-			return DefaultStoreLoader(ms)
-		} else if err != nil {
-			return err
-		}
-
-		// there is a migration file, let's execute
-		data, err := ioutil.ReadFile(upgradeInfoPath)
-		if err != nil {
-			return fmt.Errorf("cannot read upgrade file %s: %v", upgradeInfoPath, err)
-		}
-
-		var upgrades storetypes.StoreUpgrades
-		err = json.Unmarshal(data, &upgrades)
-		if err != nil {
-			return fmt.Errorf("cannot parse upgrade file: %v", err)
-		}
-
-		err = ms.LoadLatestVersionAndUpgrade(&upgrades)
-		if err != nil {
-			return fmt.Errorf("load and upgrade database: %v", err)
-		}
-
-		// if we have a successful load, we delete the file
-		err = os.Remove(upgradeInfoPath)
-		if err != nil {
-			return fmt.Errorf("deleting upgrade file %s: %v", upgradeInfoPath, err)
-		}
-		return nil
-	}
-}
-
 // LoadVersion loads the BaseApp application version. It will panic if called
 // more than once on a running baseapp.
-func (app *BaseApp) LoadVersion(version int64, baseKey *sdk.KVStoreKey) error {
+func (app *BaseApp) LoadVersion(version int64) error {
 	err := app.cms.LoadVersion(version)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load version %d: %w", version, err)
 	}
-	return app.initFromMainStore(baseKey)
+
+	return app.init()
 }
 
 // LastCommitID returns the last CommitID of the multistore.
@@ -302,33 +240,9 @@ func (app *BaseApp) LastBlockHeight() int64 {
 	return app.cms.LastCommitID().Version
 }
 
-// initializes the remaining logic from app.cms
-func (app *BaseApp) initFromMainStore(baseKey *sdk.KVStoreKey) error {
-	mainStore := app.cms.GetKVStore(baseKey)
-	if mainStore == nil {
-		return errors.New("baseapp expects MultiStore with 'main' KVStore")
-	}
-
-	// memoize baseKey
-	if app.baseKey != nil {
-		panic("app.baseKey expected to be nil; duplicate init?")
-	}
-	app.baseKey = baseKey
-
-	// Load the consensus params from the main store. If the consensus params are
-	// nil, it will be saved later during InitChain.
-	//
-	// TODO: assert that InitChain hasn't yet been called.
-	consensusParamsBz := mainStore.Get(mainConsensusParamsKey)
-	if consensusParamsBz != nil {
-		var consensusParams = &abci.ConsensusParams{}
-
-		err := proto.Unmarshal(consensusParamsBz, consensusParams)
-		if err != nil {
-			panic(err)
-		}
-
-		app.setConsensusParams(consensusParams)
+func (app *BaseApp) init() error {
+	if app.sealed {
+		panic("cannot call initFromMainStore: baseapp already sealed")
 	}
 
 	// needed for the export command which inits from store but never calls initchain
@@ -361,6 +275,7 @@ func (app *BaseApp) Router() sdk.Router {
 		// any routes modified which would cause unexpected routing behavior.
 		panic("Router() on sealed BaseApp")
 	}
+
 	return app.router
 }
 
@@ -397,30 +312,65 @@ func (app *BaseApp) setDeliverState(header abci.Header) {
 	}
 }
 
-// setConsensusParams memoizes the consensus params.
-func (app *BaseApp) setConsensusParams(consensusParams *abci.ConsensusParams) {
-	app.consensusParams = consensusParams
+// GetConsensusParams returns the current consensus parameters from the BaseApp's
+// ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
+func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *abci.ConsensusParams {
+	if app.paramStore == nil {
+		return nil
+	}
+
+	cp := new(abci.ConsensusParams)
+
+	if app.paramStore.Has(ctx, ParamStoreKeyBlockParams) {
+		var bp abci.BlockParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyBlockParams, &bp)
+		cp.Block = &bp
+	}
+
+	if app.paramStore.Has(ctx, ParamStoreKeyEvidenceParams) {
+		var ep abci.EvidenceParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyEvidenceParams, &ep)
+		cp.Evidence = &ep
+	}
+
+	if app.paramStore.Has(ctx, ParamStoreKeyValidatorParams) {
+		var vp abci.ValidatorParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyValidatorParams, &vp)
+		cp.Validator = &vp
+	}
+
+	return cp
 }
 
-// setConsensusParams stores the consensus params to the main store.
-func (app *BaseApp) storeConsensusParams(consensusParams *abci.ConsensusParams) {
-	consensusParamsBz, err := proto.Marshal(consensusParams)
-	if err != nil {
-		panic(err)
+// StoreConsensusParams sets the consensus parameters to the baseapp's param store.
+func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *abci.ConsensusParams) {
+	if app.paramStore == nil {
+		panic("cannot store consensus params with no params store set")
 	}
-	mainStore := app.cms.GetKVStore(app.baseKey)
-	mainStore.Set(mainConsensusParamsKey, consensusParamsBz)
+
+	if cp == nil {
+		return
+	}
+
+	app.paramStore.Set(ctx, ParamStoreKeyBlockParams, cp.Block)
+	app.paramStore.Set(ctx, ParamStoreKeyEvidenceParams, cp.Evidence)
+	app.paramStore.Set(ctx, ParamStoreKeyValidatorParams, cp.Validator)
 }
 
 // getMaximumBlockGas gets the maximum gas from the consensus params. It panics
 // if maximum block gas is less than negative one and returns zero if negative
 // one.
-func (app *BaseApp) getMaximumBlockGas() uint64 {
-	if app.consensusParams == nil || app.consensusParams.Block == nil {
+func (app *BaseApp) getMaximumBlockGas(ctx sdk.Context) uint64 {
+	cp := app.GetConsensusParams(ctx)
+	if cp == nil || cp.Block == nil {
 		return 0
 	}
 
-	maxGas := app.consensusParams.Block.MaxGas
+	maxGas := cp.Block.MaxGas
+
 	switch {
 	case maxGas < -1:
 		panic(fmt.Sprintf("invalid maximum block gas: %d", maxGas))
@@ -476,12 +426,14 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
 	ctx := app.getState(mode).ctx.
 		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos).
-		WithConsensusParams(app.consensusParams)
+		WithVoteInfos(app.voteInfos)
+
+	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 
 	if mode == runTxModeReCheck {
 		ctx = ctx.WithIsReCheckTx(true)
 	}
+
 	if mode == runTxModeSimulate {
 		ctx, _ = ctx.CacheContext()
 	}
@@ -581,13 +533,14 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte, tx sdk.Tx) (gInfo sdk.
 
 	msgs := tx.GetMsgs()
 	if err := validateBasicTxMsgs(msgs); err != nil {
-		gInfo = sdk.GasInfo{GasUsed: ctx.BlockGasMeter().GasConsumed()}
-		return gInfo, nil, err
+		return sdk.GasInfo{}, nil, err
 	}
 
 	if app.anteHandler != nil {
-		var anteCtx sdk.Context
-		var msCache sdk.CacheMultiStore
+		var (
+			anteCtx sdk.Context
+			msCache sdk.CacheMultiStore
+		)
 
 		// Cache wrap context before AnteHandler call in case it aborts.
 		// This is required for both CheckTx and DeliverTx.
@@ -597,8 +550,8 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte, tx sdk.Tx) (gInfo sdk.
 		// writes do not happen if aborted/failed.  This may have some
 		// performance benefits, but it'll be more difficult to get right.
 		anteCtx, msCache = app.cacheTxContext(ctx, txBytes)
-
 		newCtx, err := app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
+
 		if !newCtx.IsZero() {
 			// At this point, newCtx.MultiStore() is cache-wrapped, or something else
 			// replaced by the AnteHandler. We want the original multistore, not one
@@ -655,6 +608,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 		msgRoute := msg.Route()
 		handler := app.router.Route(ctx, msgRoute)
+
 		if handler == nil {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized message route: %s; message index: %d", msgRoute, i)
 		}
@@ -667,13 +621,14 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		msgEvents := sdk.Events{
 			sdk.NewEvent(sdk.EventTypeMessage, sdk.NewAttribute(sdk.AttributeKeyAction, msg.Type())),
 		}
-		msgEvents = msgEvents.AppendEvents(msgResult.Events)
+		msgEvents = msgEvents.AppendEvents(msgResult.GetEvents())
 
 		// append message events, data and logs
 		//
 		// Note: Each message result's data must be length-prefixed in order to
 		// separate each result.
 		events = events.AppendEvents(msgEvents)
+
 		data = append(data, msgResult.Data...)
 		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint16(i), msgResult.Log, msgEvents))
 	}
@@ -681,6 +636,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	return &sdk.Result{
 		Data:   data,
 		Log:    strings.TrimSpace(msgLogs.String()),
-		Events: events,
+		Events: events.ToABCIEvents(),
 	}, nil
 }

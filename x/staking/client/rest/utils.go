@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/context"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/auth/client/utils"
+	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -32,7 +32,7 @@ func queryTxs(cliCtx context.CLIContext, action string, delegatorAddr string) (*
 		fmt.Sprintf("%s.%s='%s'", sdk.EventTypeMessage, sdk.AttributeKeySender, delegatorAddr),
 	}
 
-	return utils.QueryTxsByEvents(cliCtx, events, page, limit)
+	return authclient.QueryTxsByEvents(cliCtx, events, page, limit, "")
 }
 
 func queryBonds(cliCtx context.CLIContext, endpoint string) http.HandlerFunc {
@@ -42,14 +42,12 @@ func queryBonds(cliCtx context.CLIContext, endpoint string) http.HandlerFunc {
 		bech32validator := vars["validatorAddr"]
 
 		delegatorAddr, err := sdk.AccAddressFromBech32(bech32delegator)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
 		validatorAddr, err := sdk.ValAddressFromBech32(bech32validator)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
@@ -61,14 +59,12 @@ func queryBonds(cliCtx context.CLIContext, endpoint string) http.HandlerFunc {
 		params := types.NewQueryBondsParams(delegatorAddr, validatorAddr)
 
 		bz, err := cliCtx.Codec.MarshalJSON(params)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
 		res, height, err := cliCtx.QueryWithData(endpoint, bz)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
+		if rest.CheckInternalServerError(w, err) {
 			return
 		}
 
@@ -83,8 +79,7 @@ func queryDelegator(cliCtx context.CLIContext, endpoint string) http.HandlerFunc
 		bech32delegator := vars["delegatorAddr"]
 
 		delegatorAddr, err := sdk.AccAddressFromBech32(bech32delegator)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
@@ -96,14 +91,12 @@ func queryDelegator(cliCtx context.CLIContext, endpoint string) http.HandlerFunc
 		params := types.NewQueryDelegatorParams(delegatorAddr)
 
 		bz, err := cliCtx.Codec.MarshalJSON(params)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
 		res, height, err := cliCtx.QueryWithData(endpoint, bz)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
+		if rest.CheckInternalServerError(w, err) {
 			return
 		}
 
@@ -118,8 +111,7 @@ func queryValidator(cliCtx context.CLIContext, endpoint string) http.HandlerFunc
 		bech32validatorAddr := vars["validatorAddr"]
 
 		validatorAddr, err := sdk.ValAddressFromBech32(bech32validatorAddr)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
@@ -131,14 +123,12 @@ func queryValidator(cliCtx context.CLIContext, endpoint string) http.HandlerFunc
 		params := types.NewQueryValidatorParams(validatorAddr)
 
 		bz, err := cliCtx.Codec.MarshalJSON(params)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+		if rest.CheckBadRequestError(w, err) {
 			return
 		}
 
 		res, height, err := cliCtx.QueryWithData(endpoint, bz)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
+		if rest.CheckInternalServerError(w, err) {
 			return
 		}
 

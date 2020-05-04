@@ -24,12 +24,11 @@ func (h Hooks) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) {
 
 // cleanup for after validator is removed
 func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, _ sdk.ConsAddress, valAddr sdk.ValAddress) {
-
 	// fetch outstanding
-	outstanding := h.k.GetValidatorOutstandingRewards(ctx, valAddr)
+	outstanding := h.k.GetValidatorOutstandingRewardsCoins(ctx, valAddr)
 
 	// force-withdraw commission
-	commission := h.k.GetValidatorAccumulatedCommission(ctx, valAddr)
+	commission := h.k.GetValidatorAccumulatedCommission(ctx, valAddr).Commission
 	if !commission.IsZero() {
 		// subtract from outstanding
 		outstanding = outstanding.Sub(commission)
@@ -47,7 +46,7 @@ func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, _ sdk.ConsAddress, valAddr
 
 			accAddr := sdk.AccAddress(valAddr)
 			withdrawAddr := h.k.GetDelegatorWithdrawAddr(ctx, accAddr)
-			err := h.k.supplyKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, coins)
+			err := h.k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, coins)
 			if err != nil {
 				panic(err)
 			}
@@ -78,7 +77,7 @@ func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, _ sdk.ConsAddress, valAddr
 // increment period
 func (h Hooks) BeforeDelegationCreated(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) {
 	val := h.k.stakingKeeper.Validator(ctx, valAddr)
-	h.k.incrementValidatorPeriod(ctx, val)
+	h.k.IncrementValidatorPeriod(ctx, val)
 }
 
 // withdraw delegation rewards (which also increments period)

@@ -13,7 +13,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/exported"
-	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
@@ -49,10 +48,10 @@ type SigVerifiableTx interface {
 // PubKeys must be set in context for all signers before any other sigverify decorators run
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type SetPubKeyDecorator struct {
-	ak keeper.AccountKeeper
+	ak AccountKeeper
 }
 
-func NewSetPubKeyDecorator(ak keeper.AccountKeeper) SetPubKeyDecorator {
+func NewSetPubKeyDecorator(ak AccountKeeper) SetPubKeyDecorator {
 	return SetPubKeyDecorator{
 		ak: ak,
 	}
@@ -104,11 +103,11 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 // CONTRACT: Pubkeys are set in context for all signers before this decorator runs
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type SigGasConsumeDecorator struct {
-	ak             keeper.AccountKeeper
+	ak             AccountKeeper
 	sigGasConsumer SignatureVerificationGasConsumer
 }
 
-func NewSigGasConsumeDecorator(ak keeper.AccountKeeper, sigGasConsumer SignatureVerificationGasConsumer) SigGasConsumeDecorator {
+func NewSigGasConsumeDecorator(ak AccountKeeper, sigGasConsumer SignatureVerificationGasConsumer) SigGasConsumeDecorator {
 	return SigGasConsumeDecorator{
 		ak:             ak,
 		sigGasConsumer: sigGasConsumer,
@@ -159,10 +158,10 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 // CONTRACT: Pubkeys are set in context for all signers before this decorator runs
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type SigVerificationDecorator struct {
-	ak keeper.AccountKeeper
+	ak AccountKeeper
 }
 
-func NewSigVerificationDecorator(ak keeper.AccountKeeper) SigVerificationDecorator {
+func NewSigVerificationDecorator(ak AccountKeeper) SigVerificationDecorator {
 	return SigVerificationDecorator{
 		ak: ak,
 	}
@@ -218,26 +217,26 @@ func (svd SigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 
 // IncrementSequenceDecorator handles incrementing sequences of all signers.
 // Use the IncrementSequenceDecorator decorator to prevent replay attacks. Note,
-// there is no need to execute IncrementSequenceDecorator on CheckTx or RecheckTX
-// since it is merely updating the nonce. As a result, this has the side effect
-// that subsequent and sequential txs orginating from the same account cannot be
-// handled correctly in a reliable way. To send sequential txs orginating from the
-// same account, it is recommended to instead use multiple messages in a tx.
+// there is no need to execute IncrementSequenceDecorator on RecheckTX since
+// CheckTx would already bump the sequence number.
 //
-// CONTRACT: The tx must implement the SigVerifiableTx interface.
+// NOTE: Since CheckTx and DeliverTx state are managed separately, subsequent and
+// sequential txs orginating from the same account cannot be handled correctly in
+// a reliable way unless sequence numbers are managed and tracked manually by a
+// client. It is recommended to instead use multiple messages in a tx.
 type IncrementSequenceDecorator struct {
-	ak keeper.AccountKeeper
+	ak AccountKeeper
 }
 
-func NewIncrementSequenceDecorator(ak keeper.AccountKeeper) IncrementSequenceDecorator {
+func NewIncrementSequenceDecorator(ak AccountKeeper) IncrementSequenceDecorator {
 	return IncrementSequenceDecorator{
 		ak: ak,
 	}
 }
 
 func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	// no need to increment sequence on CheckTx or RecheckTx
-	if ctx.IsCheckTx() && !simulate {
+	// no need to increment sequence on RecheckTx
+	if ctx.IsReCheckTx() && !simulate {
 		return next(ctx, tx, simulate)
 	}
 
@@ -252,6 +251,7 @@ func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 		if err := acc.SetSequence(acc.GetSequence() + 1); err != nil {
 			panic(err)
 		}
+
 		isd.ak.SetAccount(ctx, acc)
 	}
 
@@ -263,10 +263,10 @@ func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 // Use this decorator to set parameterized limit on number of signatures in tx
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type ValidateSigCountDecorator struct {
-	ak keeper.AccountKeeper
+	ak AccountKeeper
 }
 
-func NewValidateSigCountDecorator(ak keeper.AccountKeeper) ValidateSigCountDecorator {
+func NewValidateSigCountDecorator(ak AccountKeeper) ValidateSigCountDecorator {
 	return ValidateSigCountDecorator{
 		ak: ak,
 	}
@@ -299,6 +299,7 @@ func (vscd ValidateSigCountDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 func DefaultSigVerificationGasConsumer(
 	meter sdk.GasMeter, sig []byte, pubkey crypto.PubKey, params types.Params,
 ) error {
+
 	switch pubkey := pubkey.(type) {
 	case ed25519.PubKeyEd25519:
 		meter.ConsumeGas(params.SigVerifyCostED25519, "ante verify: ed25519")
@@ -312,7 +313,7 @@ func DefaultSigVerificationGasConsumer(
 		var multisignature multisig.Multisignature
 		codec.Cdc.MustUnmarshalBinaryBare(sig, &multisignature)
 
-		consumeMultisignatureVerificationGas(meter, multisignature, pubkey, params)
+		ConsumeMultisignatureVerificationGas(meter, multisignature, pubkey, params)
 		return nil
 
 	default:
@@ -320,11 +321,14 @@ func DefaultSigVerificationGasConsumer(
 	}
 }
 
-func consumeMultisignatureVerificationGas(meter sdk.GasMeter,
-	sig multisig.Multisignature, pubkey multisig.PubKeyMultisigThreshold,
-	params types.Params) {
+// ConsumeMultisignatureVerificationGas consumes gas from a GasMeter for verifying a multisig pubkey signature
+func ConsumeMultisignatureVerificationGas(
+	meter sdk.GasMeter, sig multisig.Multisignature, pubkey multisig.PubKeyMultisigThreshold, params types.Params,
+) {
+
 	size := sig.BitArray.Size()
 	sigIndex := 0
+
 	for i := 0; i < size; i++ {
 		if sig.BitArray.GetIndex(i) {
 			DefaultSigVerificationGasConsumer(meter, sig.Sigs[sigIndex], pubkey.PubKeys[i], params)
@@ -335,9 +339,10 @@ func consumeMultisignatureVerificationGas(meter sdk.GasMeter,
 
 // GetSignerAcc returns an account for a given address that is expected to sign
 // a transaction.
-func GetSignerAcc(ctx sdk.Context, ak keeper.AccountKeeper, addr sdk.AccAddress) (exported.Account, error) {
+func GetSignerAcc(ctx sdk.Context, ak AccountKeeper, addr sdk.AccAddress) (exported.Account, error) {
 	if acc := ak.GetAccount(ctx, addr); acc != nil {
 		return acc, nil
 	}
+
 	return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "account %s does not exist", addr)
 }

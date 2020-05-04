@@ -45,7 +45,7 @@ func ValidatorCommand(cdc *codec.Codec) *cobra.Command {
 
 			cliCtx := context.NewCLIContext().WithCodec(cdc)
 
-			result, err := GetValidators(cliCtx, height)
+			result, err := GetValidators(cliCtx, height, viper.GetInt(flags.FlagPage), viper.GetInt(flags.FlagLimit))
 			if err != nil {
 				return err
 			}
@@ -58,8 +58,13 @@ func ValidatorCommand(cdc *codec.Codec) *cobra.Command {
 	viper.BindPFlag(flags.FlagNode, cmd.Flags().Lookup(flags.FlagNode))
 	cmd.Flags().Bool(flags.FlagTrustNode, false, "Trust connected full node (don't verify proofs for responses)")
 	viper.BindPFlag(flags.FlagTrustNode, cmd.Flags().Lookup(flags.FlagTrustNode))
+	cmd.Flags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
+	viper.BindPFlag(flags.FlagKeyringBackend, cmd.Flags().Lookup(flags.FlagKeyringBackend))
 	cmd.Flags().Bool(flags.FlagIndentResponse, false, "indent JSON response")
 	viper.BindPFlag(flags.FlagIndentResponse, cmd.Flags().Lookup(flags.FlagIndentResponse))
+	cmd.Flags().Int(flags.FlagPage, 0, "Query a specific page of paginated results")
+	viper.BindPFlag(flags.FlagPage, cmd.Flags().Lookup(flags.FlagPage))
+	cmd.Flags().Int(flags.FlagLimit, 100, "Query number of results returned per page")
 
 	return cmd
 }
@@ -100,7 +105,7 @@ func (rvo ResultValidatorsOutput) String() string {
 }
 
 func bech32ValidatorOutput(validator *tmtypes.Validator) (ValidatorOutput, error) {
-	bechValPubkey, err := sdk.Bech32ifyConsPub(validator.PubKey)
+	bechValPubkey, err := sdk.Bech32ifyPubKey(sdk.Bech32PubKeyTypeConsPub, validator.PubKey)
 	if err != nil {
 		return ValidatorOutput{}, err
 	}
@@ -114,14 +119,14 @@ func bech32ValidatorOutput(validator *tmtypes.Validator) (ValidatorOutput, error
 }
 
 // GetValidators from client
-func GetValidators(cliCtx context.CLIContext, height *int64) (ResultValidatorsOutput, error) {
+func GetValidators(cliCtx context.CLIContext, height *int64, page, limit int) (ResultValidatorsOutput, error) {
 	// get the node
 	node, err := cliCtx.GetNode()
 	if err != nil {
 		return ResultValidatorsOutput{}, err
 	}
 
-	validatorsRes, err := node.Validators(height)
+	validatorsRes, err := node.Validators(height, page, limit)
 	if err != nil {
 		return ResultValidatorsOutput{}, err
 	}
@@ -157,11 +162,16 @@ func GetValidators(cliCtx context.CLIContext, height *int64) (ResultValidatorsOu
 // Validator Set at a height REST handler
 func ValidatorSetRequestHandlerFn(cliCtx context.CLIContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
+		_, page, limit, err := rest.ParseHTTPArgsWithLimit(r, 100)
+		if err != nil {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse pagination parameters")
+			return
+		}
 
+		vars := mux.Vars(r)
 		height, err := strconv.ParseInt(vars["height"], 10, 64)
 		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse block height; assumed format is '/validatorsets/{height}'")
+			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse block height")
 			return
 		}
 
@@ -175,9 +185,8 @@ func ValidatorSetRequestHandlerFn(cliCtx context.CLIContext) http.HandlerFunc {
 			return
 		}
 
-		output, err := GetValidators(cliCtx, &height)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
+		output, err := GetValidators(cliCtx, &height, page, limit)
+		if rest.CheckInternalServerError(w, err) {
 			return
 		}
 		rest.PostProcessResponse(w, cliCtx, output)
@@ -187,9 +196,14 @@ func ValidatorSetRequestHandlerFn(cliCtx context.CLIContext) http.HandlerFunc {
 // Latest Validator Set REST handler
 func LatestValidatorSetRequestHandlerFn(cliCtx context.CLIContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		output, err := GetValidators(cliCtx, nil)
+		_, page, limit, err := rest.ParseHTTPArgsWithLimit(r, 100)
 		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusInternalServerError, err.Error())
+			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse pagination parameters")
+			return
+		}
+
+		output, err := GetValidators(cliCtx, nil, page, limit)
+		if rest.CheckInternalServerError(w, err) {
 			return
 		}
 

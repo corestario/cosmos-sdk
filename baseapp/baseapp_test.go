@@ -3,15 +3,16 @@ package baseapp
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -27,6 +28,43 @@ var (
 	capKey1 = sdk.NewKVStoreKey("key1")
 	capKey2 = sdk.NewKVStoreKey("key2")
 )
+
+type paramStore struct {
+	db *dbm.MemDB
+}
+
+func (ps *paramStore) Set(_ sdk.Context, key []byte, value interface{}) {
+	bz, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+
+	ps.db.Set(key, bz)
+}
+
+func (ps *paramStore) Has(_ sdk.Context, key []byte) bool {
+	ok, err := ps.db.Has(key)
+	if err != nil {
+		panic(err)
+	}
+
+	return ok
+}
+
+func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
+	bz, err := ps.db.Get(key)
+	if err != nil {
+		panic(err)
+	}
+
+	if len(bz) == 0 {
+		return
+	}
+
+	if err := json.Unmarshal(bz, ptr); err != nil {
+		panic(err)
+	}
+}
 
 func defaultLogger() log.Logger {
 	return log.NewTMLogger(log.NewSyncWriter(os.Stdout)).With("module", "sdk/app")
@@ -56,15 +94,11 @@ func setupBaseApp(t *testing.T, options ...func(*BaseApp)) *BaseApp {
 	app := newBaseApp(t.Name(), options...)
 	require.Equal(t, t.Name(), app.Name())
 
-	// no stores are mounted
-	require.Panics(t, func() {
-		app.LoadLatestVersion(capKey1)
-	})
-
 	app.MountStores(capKey1, capKey2)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 
 	// stores are mounted
-	err := app.LoadLatestVersion(capKey1)
+	err := app.LoadLatestVersion()
 	require.Nil(t, err)
 	return app
 }
@@ -83,15 +117,13 @@ func TestMountStores(t *testing.T) {
 // Test that LoadLatestVersion actually does.
 func TestLoadVersion(t *testing.T) {
 	logger := defaultLogger()
-	pruningOpt := SetPruning(store.PruneSyncable)
+	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, logger, db, nil, pruningOpt)
 
 	// make a cap key and mount the store
-	capKey := sdk.NewKVStoreKey(MainStoreKey)
-	app.MountStores(capKey)
-	err := app.LoadLatestVersion(capKey) // needed to make stores non-nil
+	err := app.LoadLatestVersion() // needed to make stores non-nil
 	require.Nil(t, err)
 
 	emptyCommitID := sdk.CommitID{}
@@ -116,16 +148,15 @@ func TestLoadVersion(t *testing.T) {
 
 	// reload with LoadLatestVersion
 	app = NewBaseApp(name, logger, db, nil, pruningOpt)
-	app.MountStores(capKey)
-	err = app.LoadLatestVersion(capKey)
+	app.MountStores()
+	err = app.LoadLatestVersion()
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(2), commitID2)
 
 	// reload with LoadVersion, see if you can commit the same block and get
 	// the same result
 	app = NewBaseApp(name, logger, db, nil, pruningOpt)
-	app.MountStores(capKey)
-	err = app.LoadVersion(1, capKey)
+	err = app.LoadVersion(1)
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(1), commitID1)
 	app.BeginBlock(abci.RequestBeginBlock{Header: header})
@@ -137,21 +168,9 @@ func useDefaultLoader(app *BaseApp) {
 	app.SetStoreLoader(DefaultStoreLoader)
 }
 
-func useUpgradeLoader(upgrades *store.StoreUpgrades) func(*BaseApp) {
-	return func(app *BaseApp) {
-		app.SetStoreLoader(StoreLoaderWithUpgrade(upgrades))
-	}
-}
-
-func useFileUpgradeLoader(upgradeInfoPath string) func(*BaseApp) {
-	return func(app *BaseApp) {
-		app.SetStoreLoader(UpgradeableStoreLoader(upgradeInfoPath))
-	}
-}
-
 func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
 	rs := rootmulti.NewStore(db)
-	rs.SetPruning(store.PruneSyncable)
+	rs.SetPruning(store.PruneNothing)
 	key := sdk.NewKVStoreKey(storeKey)
 	rs.MountStoreWithDB(key, store.StoreTypeIAVL, nil)
 	err := rs.LoadLatestVersion()
@@ -184,19 +203,6 @@ func checkStore(t *testing.T, db dbm.DB, ver int64, storeKey string, k, v []byte
 // Test that we can make commits and then reload old versions.
 // Test that LoadLatestVersion actually does.
 func TestSetLoader(t *testing.T) {
-	// write a renamer to a file
-	f, err := ioutil.TempFile("", "upgrade-*.json")
-	require.NoError(t, err)
-	data := []byte(`{"renamed":[{"old_key": "bnk", "new_key": "banker"}]}`)
-	_, err = f.Write(data)
-	require.NoError(t, err)
-	configName := f.Name()
-	require.NoError(t, f.Close())
-
-	// make sure it exists before running everything
-	_, err = os.Stat(configName)
-	require.NoError(t, err)
-
 	cases := map[string]struct {
 		setLoader    func(*BaseApp)
 		origStoreKey string
@@ -211,26 +217,6 @@ func TestSetLoader(t *testing.T) {
 			origStoreKey: "foo",
 			loadStoreKey: "foo",
 		},
-		"rename with inline opts": {
-			setLoader: useUpgradeLoader(&store.StoreUpgrades{
-				Renamed: []store.StoreRename{{
-					OldKey: "foo",
-					NewKey: "bar",
-				}},
-			}),
-			origStoreKey: "foo",
-			loadStoreKey: "bar",
-		},
-		"file loader with missing file": {
-			setLoader:    useFileUpgradeLoader(configName + "randomchars"),
-			origStoreKey: "bnk",
-			loadStoreKey: "bnk",
-		},
-		"file loader with existing file": {
-			setLoader:    useFileUpgradeLoader(configName),
-			origStoreKey: "bnk",
-			loadStoreKey: "banker",
-		},
 	}
 
 	k := []byte("key")
@@ -244,15 +230,13 @@ func TestSetLoader(t *testing.T) {
 			initStore(t, db, tc.origStoreKey, k, v)
 
 			// load the app with the existing db
-			opts := []func(*BaseApp){SetPruning(store.PruneSyncable)}
+			opts := []func(*BaseApp){SetPruning(store.PruneNothing)}
 			if tc.setLoader != nil {
 				opts = append(opts, tc.setLoader)
 			}
 			app := NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
-			capKey := sdk.NewKVStoreKey(MainStoreKey)
-			app.MountStores(capKey)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
-			err := app.LoadLatestVersion(capKey)
+			err := app.LoadLatestVersion()
 			require.Nil(t, err)
 
 			// "execute" one block
@@ -265,10 +249,6 @@ func TestSetLoader(t *testing.T) {
 			checkStore(t, db, 2, tc.loadStoreKey, []byte("foo"), nil)
 		})
 	}
-
-	// ensure config file was deleted
-	_, err = os.Stat(configName)
-	require.True(t, os.IsNotExist(err))
 }
 
 func TestAppVersionSetterGetter(t *testing.T) {
@@ -293,18 +273,16 @@ func TestAppVersionSetterGetter(t *testing.T) {
 
 func TestLoadVersionInvalid(t *testing.T) {
 	logger := log.NewNopLogger()
-	pruningOpt := SetPruning(store.PruneSyncable)
+	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, logger, db, nil, pruningOpt)
 
-	capKey := sdk.NewKVStoreKey(MainStoreKey)
-	app.MountStores(capKey)
-	err := app.LoadLatestVersion(capKey)
+	err := app.LoadLatestVersion()
 	require.Nil(t, err)
 
 	// require error when loading an invalid version
-	err = app.LoadVersion(-1, capKey)
+	err = app.LoadVersion(-1)
 	require.Error(t, err)
 
 	header := abci.Header{Height: 1}
@@ -314,16 +292,99 @@ func TestLoadVersionInvalid(t *testing.T) {
 
 	// create a new app with the stores mounted under the same cap key
 	app = NewBaseApp(name, logger, db, nil, pruningOpt)
-	app.MountStores(capKey)
 
 	// require we can load the latest version
-	err = app.LoadVersion(1, capKey)
+	err = app.LoadVersion(1)
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(1), commitID1)
 
 	// require error when loading an invalid version
-	err = app.LoadVersion(2, capKey)
+	err = app.LoadVersion(2)
 	require.Error(t, err)
+}
+
+func TestLoadVersionPruning(t *testing.T) {
+	logger := log.NewNopLogger()
+	pruningOptions := store.PruningOptions{
+		KeepEvery:     2,
+		SnapshotEvery: 6,
+	}
+	pruningOpt := SetPruning(pruningOptions)
+	db := dbm.NewMemDB()
+	name := t.Name()
+	app := NewBaseApp(name, logger, db, nil, pruningOpt)
+
+	// make a cap key and mount the store
+	capKey := sdk.NewKVStoreKey("key1")
+	app.MountStores(capKey)
+
+	err := app.LoadLatestVersion() // needed to make stores non-nil
+	require.Nil(t, err)
+
+	emptyCommitID := sdk.CommitID{}
+
+	// fresh store has zero/empty last commit
+	lastHeight := app.LastBlockHeight()
+	lastID := app.LastCommitID()
+	require.Equal(t, int64(0), lastHeight)
+	require.Equal(t, emptyCommitID, lastID)
+
+	// execute a block
+	header := abci.Header{Height: 1}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res := app.Commit()
+
+	// execute a block, collect commit ID
+	header = abci.Header{Height: 2}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res = app.Commit()
+	commitID2 := sdk.CommitID{Version: 2, Hash: res.Data}
+
+	// execute a block
+	header = abci.Header{Height: 3}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res = app.Commit()
+	commitID3 := sdk.CommitID{Version: 3, Hash: res.Data}
+
+	// reload with LoadLatestVersion, check it loads last flushed version
+	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app.MountStores(capKey)
+
+	err = app.LoadLatestVersion()
+	require.Nil(t, err)
+	testLoadVersionHelper(t, app, int64(2), commitID2)
+
+	// re-execute block 3 and check it is same CommitID
+	header = abci.Header{Height: 3}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res = app.Commit()
+	recommitID3 := sdk.CommitID{Version: 3, Hash: res.Data}
+	require.Equal(t, commitID3, recommitID3, "Commits of identical blocks not equal after reload")
+
+	// execute a block, collect commit ID
+	header = abci.Header{Height: 4}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res = app.Commit()
+	commitID4 := sdk.CommitID{Version: 4, Hash: res.Data}
+
+	// execute a block
+	header = abci.Header{Height: 5}
+	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	res = app.Commit()
+
+	// reload with LoadLatestVersion, check it loads last flushed version
+	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app.MountStores(capKey)
+	err = app.LoadLatestVersion()
+	require.Nil(t, err)
+	testLoadVersionHelper(t, app, int64(4), commitID4)
+
+	// reload with LoadVersion of previous flushed version
+	// and check it fails since previous flush should be pruned
+	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app.MountStores(capKey)
+	err = app.LoadVersion(2)
+	require.NotNil(t, err)
 }
 
 func testLoadVersionHelper(t *testing.T, app *BaseApp, expectedHeight int64, expectedID sdk.CommitID) {
@@ -354,7 +415,7 @@ func TestTxDecoder(t *testing.T) {
 
 	app := newBaseApp(t.Name())
 	tx := newTxCounter(1, 0)
-	txBytes := codec.MustMarshalBinaryLengthPrefixed(tx)
+	txBytes := codec.MustMarshalBinaryBare(tx)
 
 	dTx, err := app.txDecoder(txBytes)
 	require.NoError(t, err)
@@ -435,7 +496,7 @@ func TestInitChainer(t *testing.T) {
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
 	app := NewBaseApp(name, logger, db, nil)
-	capKey := sdk.NewKVStoreKey(MainStoreKey)
+	capKey := sdk.NewKVStoreKey("main")
 	capKey2 := sdk.NewKVStoreKey("key2")
 	app.MountStores(capKey, capKey2)
 
@@ -461,7 +522,7 @@ func TestInitChainer(t *testing.T) {
 	app.SetInitChainer(initChainer)
 
 	// stores are mounted and private members are set - sealing baseapp
-	err := app.LoadLatestVersion(capKey) // needed to make stores non-nil
+	err := app.LoadLatestVersion() // needed to make stores non-nil
 	require.Nil(t, err)
 	require.Equal(t, int64(0), app.LastBlockHeight())
 
@@ -483,7 +544,7 @@ func TestInitChainer(t *testing.T) {
 	app = NewBaseApp(name, logger, db, nil)
 	app.SetInitChainer(initChainer)
 	app.MountStores(capKey, capKey2)
-	err = app.LoadLatestVersion(capKey) // needed to make stores non-nil
+	err = app.LoadLatestVersion() // needed to make stores non-nil
 	require.Nil(t, err)
 	require.Equal(t, int64(1), app.LastBlockHeight())
 
@@ -593,7 +654,7 @@ func testTxDecoder(cdc *codec.Codec) sdk.TxDecoder {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx bytes are empty")
 		}
 
-		err := cdc.UnmarshalBinaryLengthPrefixed(txBytes, &tx)
+		err := cdc.UnmarshalBinaryBare(txBytes, &tx)
 		if err != nil {
 			return nil, sdkerrors.ErrTxDecode
 		}
@@ -701,7 +762,7 @@ func TestCheckTx(t *testing.T) {
 
 	for i := int64(0); i < nTxs; i++ {
 		tx := newTxCounter(i, 0)
-		txBytes, err := codec.MarshalBinaryLengthPrefixed(tx)
+		txBytes, err := codec.MarshalBinaryBare(tx)
 		require.NoError(t, err)
 		r := app.CheckTx(abci.RequestCheckTx{Tx: txBytes})
 		assert.True(t, r.IsOK(), fmt.Sprintf("%v", r))
@@ -755,7 +816,7 @@ func TestDeliverTx(t *testing.T) {
 			counter := int64(blockN*txPerHeight + i)
 			tx := newTxCounter(counter, counter)
 
-			txBytes, err := codec.MarshalBinaryLengthPrefixed(tx)
+			txBytes, err := codec.MarshalBinaryBare(tx)
 			require.NoError(t, err)
 
 			res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -799,7 +860,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	header := abci.Header{Height: 1}
 	app.BeginBlock(abci.RequestBeginBlock{Header: header})
 	tx := newTxCounter(0, 0, 1, 2)
-	txBytes, err := codec.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err := codec.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -819,7 +880,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	tx = newTxCounter(1, 3)
 	tx.Msgs = append(tx.Msgs, msgCounter2{0})
 	tx.Msgs = append(tx.Msgs, msgCounter2{1})
-	txBytes, err = codec.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err = codec.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -880,7 +941,7 @@ func TestSimulateTx(t *testing.T) {
 		app.BeginBlock(abci.RequestBeginBlock{Header: header})
 
 		tx := newTxCounter(count, count)
-		txBytes, err := cdc.MarshalBinaryLengthPrefixed(tx)
+		txBytes, err := cdc.MarshalBinaryBare(tx)
 		require.Nil(t, err)
 
 		// simulate a message, check gas reported
@@ -903,10 +964,14 @@ func TestSimulateTx(t *testing.T) {
 		queryResult := app.Query(query)
 		require.True(t, queryResult.IsOK(), queryResult.Log)
 
-		var res uint64
-		err = codec.Cdc.UnmarshalBinaryLengthPrefixed(queryResult.Value, &res)
-		require.NoError(t, err)
-		require.Equal(t, gasConsumed, res)
+		var simRes sdk.SimulationResponse
+		require.NoError(t, jsonpb.Unmarshal(strings.NewReader(string(queryResult.Value)), &simRes))
+
+		require.Equal(t, gInfo, simRes.GasInfo)
+		require.Equal(t, result.Log, simRes.Result.Log)
+		require.Equal(t, result.Events, simRes.Result.Events)
+		require.True(t, bytes.Equal(result.Data, simRes.Result.Data))
+
 		app.EndBlock(abci.RequestEndBlock{})
 		app.Commit()
 	}
@@ -1004,7 +1069,7 @@ func TestRunInvalidTransaction(t *testing.T) {
 		registerTestCodec(newCdc)
 		newCdc.RegisterConcrete(&msgNoDecode{}, "cosmos-sdk/baseapp/msgNoDecode", nil)
 
-		txBytes, err := newCdc.MarshalBinaryLengthPrefixed(tx)
+		txBytes, err := newCdc.MarshalBinaryBare(tx)
 		require.NoError(t, err)
 
 		res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -1124,7 +1189,6 @@ func TestMaxBlockGasLimits(t *testing.T) {
 
 			return
 		})
-
 	}
 
 	routerOpt := func(bapp *BaseApp) {
@@ -1227,7 +1291,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	// the next txs ante handler execution (anteHandlerTxTest).
 	tx := newTxCounter(0, 0)
 	tx.setFailOnAnte(true)
-	txBytes, err := cdc.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err := cdc.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -1241,7 +1305,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	tx = newTxCounter(0, 0)
 	tx.setFailOnHandler(true)
 
-	txBytes, err = cdc.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err = cdc.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 
 	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -1256,7 +1320,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	// implicitly checked by previous tx executions
 	tx = newTxCounter(1, 0)
 
-	txBytes, err = cdc.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err = cdc.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 
 	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -1327,7 +1391,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 
 	tx := newTxCounter(5, 0)
 	tx.setFailOnAnte(true)
-	txBytes, err := cdc.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err := cdc.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 
 	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -1335,7 +1399,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 
 	// require next tx to fail due to black gas limit
 	tx = newTxCounter(5, 0)
-	txBytes, err = cdc.MarshalBinaryLengthPrefixed(tx)
+	txBytes, err = cdc.MarshalBinaryBare(tx)
 	require.NoError(t, err)
 
 	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
@@ -1434,18 +1498,20 @@ func TestP2PQuery(t *testing.T) {
 
 func TestGetMaximumBlockGas(t *testing.T) {
 	app := setupBaseApp(t)
+	app.InitChain(abci.RequestInitChain{})
+	ctx := app.NewContext(true, abci.Header{})
 
-	app.setConsensusParams(&abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 0}})
-	require.Equal(t, uint64(0), app.getMaximumBlockGas())
+	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 0}})
+	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
 
-	app.setConsensusParams(&abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -1}})
-	require.Equal(t, uint64(0), app.getMaximumBlockGas())
+	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -1}})
+	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
 
-	app.setConsensusParams(&abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 5000000}})
-	require.Equal(t, uint64(5000000), app.getMaximumBlockGas())
+	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 5000000}})
+	require.Equal(t, uint64(5000000), app.getMaximumBlockGas(ctx))
 
-	app.setConsensusParams(&abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -5000000}})
-	require.Panics(t, func() { app.getMaximumBlockGas() })
+	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -5000000}})
+	require.Panics(t, func() { app.getMaximumBlockGas(ctx) })
 }
 
 // NOTE: represents a new custom router for testing purposes of WithRouter()
@@ -1497,7 +1563,7 @@ func TestWithRouter(t *testing.T) {
 			counter := int64(blockN*txPerHeight + i)
 			tx := newTxCounter(counter, counter)
 
-			txBytes, err := codec.MarshalBinaryLengthPrefixed(tx)
+			txBytes, err := codec.MarshalBinaryBare(tx)
 			require.NoError(t, err)
 
 			res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})

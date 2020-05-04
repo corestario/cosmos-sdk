@@ -3,14 +3,17 @@ package common
 import (
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/client/context"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
 )
 
 func TestQueryDelegationRewardsAddrValidation(t *testing.T) {
 	cdc := codec.New()
+	viper.Set(flags.FlagOffline, true)
 	ctx := context.NewCLIContext().WithCodec(cdc)
 	type args struct {
 		delAddr string
@@ -30,7 +33,7 @@ func TestQueryDelegationRewardsAddrValidation(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := QueryDelegationRewards(ctx, "", tt.args.delAddr, tt.args.valAddr)
+			_, _, err := QueryDelegationRewards(ctx, "", tt.args.delAddr, tt.args.valAddr)
 			require.True(t, err != nil, tt.wantErr)
 		})
 	}

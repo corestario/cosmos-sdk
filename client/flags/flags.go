@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/viper"
 
 	tmcli "github.com/tendermint/tendermint/libs/cli"
+
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 )
 
 // nolint
@@ -21,11 +23,10 @@ const (
 	GasFlagAuto          = "auto"
 
 	// DefaultKeyringBackend
-	DefaultKeyringBackend = KeyringBackendOS
-	KeyringBackendFile    = "file"
-	KeyringBackendOS      = "os"
-	KeyringBackendTest    = "test"
+	DefaultKeyringBackend = keyring.BackendOS
+)
 
+const (
 	// BroadcastBlock defines a tx broadcasting mode where the client waits for
 	// the tx to be committed in a block.
 	BroadcastBlock = "block"
@@ -35,7 +36,10 @@ const (
 	// BroadcastAsync defines a tx broadcasting mode where the client returns
 	// immediately.
 	BroadcastAsync = "async"
+)
 
+// List of CLI flags
+const (
 	FlagHome               = tmcli.HomeFlag
 	FlagUseLedger          = "ledger"
 	FlagChainID            = "chain-id"
@@ -53,6 +57,7 @@ const (
 	FlagBroadcastMode      = "broadcast-mode"
 	FlagDryRun             = "dry-run"
 	FlagGenerateOnly       = "generate-only"
+	FlagOffline            = "offline"
 	FlagIndentResponse     = "indent"
 	FlagListenAddr         = "laddr"
 	FlagMaxOpenConnections = "max-open"
@@ -60,7 +65,11 @@ const (
 	FlagRPCWriteTimeout    = "write-timeout"
 	FlagOutputDocument     = "output-document" // inspired by wget -O
 	FlagSkipConfirmation   = "yes"
+	FlagProve              = "prove"
 	FlagKeyringBackend     = "keyring-backend"
+	FlagPage               = "page"
+	FlagLimit              = "limit"
+	FlagUnsafeCORS         = "unsafe-cors"
 )
 
 // LineBreak can be included in a command list to provide a blank line
@@ -78,10 +87,12 @@ func GetCommands(cmds ...*cobra.Command) []*cobra.Command {
 		c.Flags().Bool(FlagUseLedger, false, "Use a connected Ledger device")
 		c.Flags().String(FlagNode, "tcp://localhost:26657", "<host>:<port> to Tendermint RPC interface for this chain")
 		c.Flags().Int64(FlagHeight, 0, "Use a specific height to query state at (this can error if the node is pruning state)")
+		c.Flags().String(FlagKeyringBackend, DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
 
 		viper.BindPFlag(FlagTrustNode, c.Flags().Lookup(FlagTrustNode))
 		viper.BindPFlag(FlagUseLedger, c.Flags().Lookup(FlagUseLedger))
 		viper.BindPFlag(FlagNode, c.Flags().Lookup(FlagNode))
+		viper.BindPFlag(FlagKeyringBackend, c.Flags().Lookup(FlagKeyringBackend))
 
 		c.MarkFlagRequired(FlagChainID)
 
@@ -106,9 +117,10 @@ func PostCommands(cmds ...*cobra.Command) []*cobra.Command {
 		c.Flags().StringP(FlagBroadcastMode, "b", BroadcastSync, "Transaction broadcasting mode (sync|async|block)")
 		c.Flags().Bool(FlagTrustNode, true, "Trust connected full node (don't verify proofs for responses)")
 		c.Flags().Bool(FlagDryRun, false, "ignore the --gas flag and perform a simulation of a transaction, but don't broadcast it")
-		c.Flags().Bool(FlagGenerateOnly, false, "Build an unsigned transaction and write it to STDOUT (when enabled, the local Keybase is not accessible and the node operates offline)")
+		c.Flags().Bool(FlagGenerateOnly, false, "Build an unsigned transaction and write it to STDOUT (when enabled, the local Keybase is not accessible)")
+		c.Flags().Bool(FlagOffline, false, "Offline mode (does not allow any online functionality")
 		c.Flags().BoolP(FlagSkipConfirmation, "y", false, "Skip tx broadcasting prompt confirmation")
-		c.Flags().String(FlagKeyringBackend, DefaultKeyringBackend, "Select keyring's backend (os|file|test)")
+		c.Flags().String(FlagKeyringBackend, DefaultKeyringBackend, "Select keyring's backend (os|file|kwallet|pass|test)")
 
 		// --gas can accept integers and "simulate"
 		c.Flags().Var(&GasFlagVar, "gas", fmt.Sprintf(
@@ -134,6 +146,7 @@ func RegisterRestServerFlags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().Uint(FlagMaxOpenConnections, 1000, "The number of maximum open connections")
 	cmd.Flags().Uint(FlagRPCReadTimeout, 10, "The RPC read timeout (in seconds)")
 	cmd.Flags().Uint(FlagRPCWriteTimeout, 10, "The RPC write timeout (in seconds)")
+	cmd.Flags().Bool(FlagUnsafeCORS, false, "Allows CORS requests from all domains. For development purposes only, use it at your own risk.")
 
 	return cmd
 }

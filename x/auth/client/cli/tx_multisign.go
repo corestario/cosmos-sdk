@@ -11,15 +11,14 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/tendermint/tendermint/crypto/multisig"
-	"github.com/tendermint/tendermint/libs/cli"
 
 	"github.com/cosmos/cosmos-sdk/client/context"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/codec"
-	crkeys "github.com/cosmos/cosmos-sdk/crypto/keys"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth/client/utils"
+	"github.com/cosmos/cosmos-sdk/x/auth/client"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
@@ -52,7 +51,6 @@ recommended to set such parameters manually.
 	}
 
 	cmd.Flags().Bool(flagSigOnly, false, "Print only the generated signature, then exit")
-	cmd.Flags().Bool(flagOffline, false, "Offline mode. Do not query a full node")
 	cmd.Flags().String(flagOutfile, "", "The document will be written to the given file instead of STDOUT")
 
 	// Add the flags here and return the command
@@ -61,23 +59,24 @@ recommended to set such parameters manually.
 
 func makeMultiSignCmd(cdc *codec.Codec) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) (err error) {
-		stdTx, err := utils.ReadStdTxFromFile(cdc, args[0])
+		stdTx, err := client.ReadStdTxFromFile(cdc, args[0])
 		if err != nil {
 			return
 		}
 
 		inBuf := bufio.NewReader(cmd.InOrStdin())
-		keybase, err := keys.NewKeyringFromDir(viper.GetString(cli.HomeFlag), inBuf)
+		kb, err := keyring.New(sdk.KeyringServiceName(),
+			viper.GetString(flags.FlagKeyringBackend), viper.GetString(flags.FlagHome), inBuf)
 		if err != nil {
 			return
 		}
 
-		multisigInfo, err := keybase.Get(args[1])
+		multisigInfo, err := kb.Key(args[1])
 		if err != nil {
 			return
 		}
-		if multisigInfo.GetType() != crkeys.TypeMulti {
-			return fmt.Errorf("%q must be of type %s: %s", args[1], crkeys.TypeMulti, multisigInfo.GetType())
+		if multisigInfo.GetType() != keyring.TypeMulti {
+			return fmt.Errorf("%q must be of type %s: %s", args[1], keyring.TypeMulti, multisigInfo.GetType())
 		}
 
 		multisigPub := multisigInfo.GetPubKey().(multisig.PubKeyMultisigThreshold)
@@ -85,8 +84,8 @@ func makeMultiSignCmd(cdc *codec.Codec) func(cmd *cobra.Command, args []string) 
 		cliCtx := context.NewCLIContextWithInput(inBuf).WithCodec(cdc)
 		txBldr := types.NewTxBuilderFromCLI(inBuf)
 
-		if !viper.GetBool(flagOffline) {
-			accnum, seq, err := types.NewAccountRetriever(cliCtx).GetAccountNumberSequence(multisigInfo.GetAddress())
+		if !cliCtx.Offline {
+			accnum, seq, err := types.NewAccountRetriever(client.Codec, cliCtx).GetAccountNumberSequence(multisigInfo.GetAddress())
 			if err != nil {
 				return err
 			}
@@ -106,15 +105,15 @@ func makeMultiSignCmd(cdc *codec.Codec) func(cmd *cobra.Command, args []string) 
 				txBldr.ChainID(), txBldr.AccountNumber(), txBldr.Sequence(),
 				stdTx.Fee, stdTx.GetMsgs(), stdTx.GetMemo(),
 			)
-			if ok := stdSig.PubKey.VerifyBytes(sigBytes, stdSig.Signature); !ok {
+			if ok := stdSig.GetPubKey().VerifyBytes(sigBytes, stdSig.Signature); !ok {
 				return fmt.Errorf("couldn't verify signature")
 			}
-			if err := multisigSig.AddSignatureFromPubKey(stdSig.Signature, stdSig.PubKey, multisigPub.PubKeys); err != nil {
+			if err := multisigSig.AddSignatureFromPubKey(stdSig.Signature, stdSig.GetPubKey(), multisigPub.PubKeys); err != nil {
 				return err
 			}
 		}
 
-		newStdSig := types.StdSignature{Signature: cdc.MustMarshalBinaryBare(multisigSig), PubKey: multisigPub}
+		newStdSig := types.StdSignature{Signature: cdc.MustMarshalBinaryBare(multisigSig), PubKey: multisigPub.Bytes()}
 		newTx := types.NewStdTx(stdTx.GetMsgs(), stdTx.Fee, []types.StdSignature{newStdSig}, stdTx.GetMemo())
 
 		sigOnly := viper.GetBool(flagSigOnly)

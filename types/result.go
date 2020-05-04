@@ -7,32 +7,30 @@ import (
 	"math"
 	"strings"
 
+	yaml "gopkg.in/yaml.v2"
+
 	"github.com/cosmos/cosmos-sdk/codec"
 
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 )
 
-// GasInfo defines tx execution gas context.
-type GasInfo struct {
-	// GasWanted is the maximum units of work we allow this tx to perform.
-	GasWanted uint64
-
-	// GasUsed is the amount of gas actually consumed. NOTE: unimplemented
-	GasUsed uint64
+func (gi GasInfo) String() string {
+	bz, _ := yaml.Marshal(gi)
+	return string(bz)
 }
 
-// Result is the union of ResponseFormat and ResponseCheckTx.
-type Result struct {
-	// Data is any data returned from message or handler execution. It MUST be length
-	// prefixed in order to separate data from multiple message executions.
-	Data []byte
+func (r Result) String() string {
+	bz, _ := yaml.Marshal(r)
+	return string(bz)
+}
 
-	// Log contains the log information from message or handler execution.
-	Log string
+func (r Result) GetEvents() Events {
+	events := make(Events, len(r.Events))
+	for i, e := range r.Events {
+		events[i] = Event(e)
+	}
 
-	// Events contains a slice of Event objects that were emitted during message or
-	// handler execution.
-	Events Events
+	return events
 }
 
 // ABCIMessageLogs represents a slice of ABCIMessageLog.

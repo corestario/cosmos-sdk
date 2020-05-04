@@ -1,37 +1,44 @@
 module github.com/cosmos/cosmos-sdk
 
-go 1.12
+go 1.14
 
 require (
-	github.com/99designs/keyring v1.1.3
-	github.com/bartekn/go-bip39 v0.0.0-20171116152956-a05967ea095d
+	github.com/99designs/keyring v1.1.5
 	github.com/bgentry/speakeasy v0.1.0
-	github.com/btcsuite/btcd v0.0.0-20190115013929-ed77733ec07d
-	github.com/cosmos/go-bip39 v0.0.0-20180618194314-52158e4697b8
+	github.com/btcsuite/btcd v0.20.1-beta
+	github.com/cosmos/go-bip39 v0.0.0-20180819234021-555e2067c45d
 	github.com/cosmos/ledger-cosmos-go v0.11.1
+	github.com/gibson042/canonicaljson-go v1.0.3
 	github.com/gogo/protobuf v1.3.1
-	github.com/golang/mock v1.3.1-0.20190508161146-9fa652df1129
-	github.com/gorilla/mux v1.7.3
-	github.com/hashicorp/golang-lru v0.5.3
-	github.com/mattn/go-isatty v0.0.11
-	github.com/pelletier/go-toml v1.6.0
-	github.com/pkg/errors v0.8.1
-	github.com/rakyll/statik v0.1.6
-	github.com/spf13/cobra v0.0.5
+	github.com/golang/mock v1.4.3
+	github.com/golang/protobuf v1.4.0
+	github.com/gorilla/handlers v1.4.2
+	github.com/gorilla/mux v1.7.4
+	github.com/hashicorp/golang-lru v0.5.4
+	github.com/mattn/go-isatty v0.0.12
+	github.com/otiai10/copy v1.1.1
+	github.com/pelletier/go-toml v1.7.0
+	github.com/pkg/errors v0.9.1
+	github.com/rakyll/statik v0.1.7
+	github.com/regen-network/cosmos-proto v0.2.2
+	github.com/spf13/afero v1.2.2 // indirect
+	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/spf13/viper v1.6.1
-	github.com/stretchr/testify v1.4.0
+	github.com/spf13/viper v1.6.3
+	github.com/stretchr/testify v1.5.1
 	github.com/tendermint/btcd v0.1.1
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15
 	github.com/tendermint/go-amino v0.15.1
 	github.com/tendermint/iavl v0.12.4
 	github.com/tendermint/tendermint v0.32.8
-	github.com/tendermint/tm-db v0.3.0
-	gopkg.in/yaml.v2 v2.2.7
+	github.com/tendermint/tm-db v0.5.1
+	gopkg.in/yaml.v2 v2.2.8
 )
 
 replace (
-	github.com/tendermint/tendermint => github.com/corestario/tendermint v0.5.0
+	github.com/tendermint/tendermint => ./../tendermint
 	go.dedis.ch/kyber/v3 => github.com/corestario/kyber/v3 v3.0.0-20200218082721-8ed10c357c05
 	golang.org/x/crypto => github.com/tendermint/crypto v0.0.0-20180820045704-3764759f34a5
 )
+
+replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.2-alpha.regen.1

@@ -4,7 +4,6 @@ package server
 
 import (
 	"fmt"
-	"github.com/tendermint/tendermint/node"
 	"os"
 	"runtime/pprof"
 
@@ -12,22 +11,25 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/abci/server"
 	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	cmn "github.com/tendermint/tendermint/libs/common"
 	blsNode "github.com/tendermint/tendermint/node/bls"
+	tmos "github.com/tendermint/tendermint/libs/os"
+	"github.com/tendermint/tendermint/node"
 )
 
 // Tendermint full-node start flags
 const (
-	flagWithTendermint     = "with-tendermint"
-	flagAddress            = "address"
-	flagTraceStore         = "trace-store"
-	flagPruning            = "pruning"
-	flagCPUProfile         = "cpu-profile"
-	FlagMinGasPrices       = "minimum-gas-prices"
-	FlagHaltHeight         = "halt-height"
-	FlagHaltTime           = "halt-time"
-	FlagInterBlockCache    = "inter-block-cache"
-	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
+	flagWithTendermint       = "with-tendermint"
+	flagAddress              = "address"
+	flagTraceStore           = "trace-store"
+	flagPruning              = "pruning"
+	flagPruningKeepEvery     = "pruning-keep-every"
+	flagPruningSnapshotEvery = "pruning-snapshot-every"
+	flagCPUProfile           = "cpu-profile"
+	FlagMinGasPrices         = "minimum-gas-prices"
+	FlagHaltHeight           = "halt-height"
+	FlagHaltTime             = "halt-time"
+	FlagInterBlockCache      = "inter-block-cache"
+	FlagUnsafeSkipUpgrades   = "unsafe-skip-upgrades"
 )
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
@@ -39,9 +41,11 @@ func StartCmd(ctx *Context, appCreator AppCreator) *cobra.Command {
 		Long: `Run the full node application with Tendermint in or out of process. By
 default, the application will run with Tendermint in process.
 
-Pruning options can be provided via the '--pruning' flag. The options are as follows:
+Pruning options can be provided via the '--pruning' flag or alternatively with '--pruning-snapshot-every' and 'pruning-keep-every' together.
 
-syncable: only those states not needed for state syncing will be deleted (keeps last 100 + every 10000th)
+For '--pruning' the options are as follows:
+
+syncable: only those states not needed for state syncing will be deleted (flushes every 100th to disk and keeps every 10000th)
 nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
 everything: all saved states will be deleted, storing only the current state
 
@@ -54,6 +58,10 @@ will not be able to commit subsequent blocks.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
 `,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			_, err := GetPruningOptionsFromFlags()
+			return err
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !viper.GetBool(flagWithTendermint) {
 				ctx.Logger.Info("starting ABCI without Tendermint")
@@ -71,7 +79,9 @@ which accepts a path for the resulting pprof file.
 	cmd.Flags().Bool(flagWithTendermint, true, "Run abci app embedded in-process with tendermint")
 	cmd.Flags().String(flagAddress, "tcp://0.0.0.0:26658", "Listen address")
 	cmd.Flags().String(flagTraceStore, "", "Enable KVStore tracing to an output file")
-	cmd.Flags().String(flagPruning, "syncable", "Pruning strategy: syncable, nothing, everything")
+	cmd.Flags().String(flagPruning, "syncable", "Pruning strategy: syncable, nothing, everything, custom")
+	cmd.Flags().Int64(flagPruningKeepEvery, 0, "Define the state number that will be kept. Ignored if pruning is not custom.")
+	cmd.Flags().Int64(flagPruningSnapshotEvery, 0, "Defines the state that will be snapshot for pruning. Ignored if pruning is not custom.")
 	cmd.Flags().String(
 		FlagMinGasPrices, "",
 		"Minimum gas prices to accept for transactions; Any fee in a tx must meet this minimum (e.g. 0.01photino;0.0001stake)",
@@ -81,6 +91,10 @@ which accepts a path for the resulting pprof file.
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
+
+	viper.BindPFlag(flagPruning, cmd.Flags().Lookup(flagPruning))
+	viper.BindPFlag(flagPruningKeepEvery, cmd.Flags().Lookup(flagPruningKeepEvery))
+	viper.BindPFlag(flagPruningSnapshotEvery, cmd.Flags().Lookup(flagPruningSnapshotEvery))
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd)
@@ -112,14 +126,14 @@ func startStandAlone(ctx *Context, appCreator AppCreator) error {
 
 	err = svr.Start()
 	if err != nil {
-		cmn.Exit(err.Error())
+		tmos.Exit(err.Error())
 	}
 
-	cmn.TrapSignal(ctx.Logger, func() {
+	tmos.TrapSignal(ctx.Logger, func() {
 		// cleanup
 		err = svr.Stop()
 		if err != nil {
-			cmn.Exit(err.Error())
+			tmos.Exit(err.Error())
 		}
 	})
 
@@ -145,8 +159,6 @@ func startInProcess(ctx *Context, appCreator AppCreator) (*node.Node, error) {
 	}
 
 	app := appCreator(ctx.Logger, db, traceWriter)
-
-	UpgradeOldPrivValFile(cfg)
 
 	//create & start tendermint node
 	tmNode, err := blsNode.NewBLSNodeForCosmos(

@@ -1,11 +1,12 @@
 <!--
 order: 2
-synopsis: "This document describes the lifecycle of a transaction from creation to committed state changes. Transaction definition is described in a [different doc](../core/transactions.md). The transaction will be referred to as `Tx`."
 -->
 
 # Transaction Lifecycle
 
-## Pre-requisite Readings {hide}
+This document describes the lifecycle of a transaction from creation to committed state changes. Transaction definition is described in a [different doc](../core/transactions.md). The transaction will be referred to as `Tx`. {synopsis}
+
+### Pre-requisite Readings
 
 - [Anatomy of an SDK Application](./app-anatomy.md) {prereq}
 
@@ -210,9 +211,7 @@ wrong, a deferred function at the end appropriately errors or panics.
 
 If there are any failed state changes resulting from a `Tx` being invalid or `GasMeter` running out,
 the transaction processing terminates and any state changes are reverted. Invalid transactions in a
-block proposal cause validator nodes to reject the block and vote for a `nil` block instead. If a
-`Tx` is delivered successfully, any leftover gas is returned to the user and the transaction is
-validated.
+block proposal cause validator nodes to reject the block and vote for a `nil` block instead.
 
 ### Commit
 

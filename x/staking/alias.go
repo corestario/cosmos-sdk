@@ -12,7 +12,6 @@ const (
 	DefaultParamspace                  = keeper.DefaultParamspace
 	ModuleName                         = types.ModuleName
 	StoreKey                           = types.StoreKey
-	TStoreKey                          = types.TStoreKey
 	QuerierRoute                       = types.QuerierRoute
 	RouterKey                          = types.RouterKey
 	DefaultUnbondingTime               = types.DefaultUnbondingTime
@@ -123,6 +122,7 @@ var (
 	ErrNeitherShareMsgsGiven           = types.ErrNeitherShareMsgsGiven
 	ErrInvalidHistoricalInfo           = types.ErrInvalidHistoricalInfo
 	ErrNoHistoricalInfo                = types.ErrNoHistoricalInfo
+	ErrEmptyValidatorPubKey            = types.ErrEmptyValidatorPubKey
 	NewGenesisState                    = types.NewGenesisState
 	DefaultGenesisState                = types.DefaultGenesisState
 	NewMultiStakingHooks               = types.NewMultiStakingHooks

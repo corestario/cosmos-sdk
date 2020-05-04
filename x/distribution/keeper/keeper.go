@@ -3,22 +3,23 @@ package keeper
 import (
 	"fmt"
 
+	"github.com/tendermint/tendermint/libs/log"
+
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
-	"github.com/cosmos/cosmos-sdk/x/params"
-
-	"github.com/tendermint/tendermint/libs/log"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
 // Keeper of the distribution store
 type Keeper struct {
 	storeKey      sdk.StoreKey
-	cdc           *codec.Codec
-	paramSpace    params.Subspace
+	cdc           codec.Marshaler
+	paramSpace    paramtypes.Subspace
+	authKeeper    types.AccountKeeper
+	bankKeeper    types.BankKeeper
 	stakingKeeper types.StakingKeeper
-	supplyKeeper  types.SupplyKeeper
 
 	blacklistedAddrs map[string]bool
 
@@ -29,22 +30,27 @@ type Keeper struct {
 
 // NewKeeper creates a new distribution Keeper instance
 func NewKeeper(
-	cdc *codec.Codec, key sdk.StoreKey, paramSpace params.Subspace,
-	sk types.StakingKeeper, supplyKeeper types.SupplyKeeper, feeCollectorName string,
-	blacklistedAddrs map[string]bool, options ...DistributionKeeperOptions,
+	cdc codec.Marshaler, key sdk.StoreKey, paramSpace paramtypes.Subspace,
+	ak types.AccountKeeper, bk types.BankKeeper, sk types.StakingKeeper,
+	feeCollectorName string, blacklistedAddrs map[string]bool, options ...DistributionKeeperOptions,
 ) Keeper {
 
 	// ensure distribution module account is set
-	if addr := supplyKeeper.GetModuleAddress(types.ModuleName); addr == nil {
+	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {
 		panic(fmt.Sprintf("%s module account has not been set", types.ModuleName))
+	}
+
+	if !paramSpace.HasKeyTable() {
+		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
 	}
 
 	k := Keeper{
 		storeKey:         key,
 		cdc:              cdc,
-		paramSpace:       paramSpace.WithKeyTable(ParamKeyTable()),
+		paramSpace:       paramSpace,
+		authKeeper:       ak,
+		bankKeeper:       bk,
 		stakingKeeper:    sk,
-		supplyKeeper:     supplyKeeper,
 		feeCollectorName: feeCollectorName,
 		blacklistedAddrs: blacklistedAddrs,
 	}
@@ -115,21 +121,21 @@ func (k Keeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddres
 func (k Keeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error) {
 	// fetch validator accumulated commission
 	accumCommission := k.GetValidatorAccumulatedCommission(ctx, valAddr)
-	if accumCommission.IsZero() {
+	if accumCommission.Commission.IsZero() {
 		return nil, types.ErrNoValidatorCommission
 	}
 
-	commission, remainder := accumCommission.TruncateDecimal()
-	k.SetValidatorAccumulatedCommission(ctx, valAddr, remainder) // leave remainder to withdraw later
+	commission, remainder := accumCommission.Commission.TruncateDecimal()
+	k.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: remainder}) // leave remainder to withdraw later
 
 	// update outstanding
-	outstanding := k.GetValidatorOutstandingRewards(ctx, valAddr)
-	k.SetValidatorOutstandingRewards(ctx, valAddr, outstanding.Sub(sdk.NewDecCoinsFromCoins(commission...)))
+	outstanding := k.GetValidatorOutstandingRewards(ctx, valAddr).Rewards
+	k.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: outstanding.Sub(sdk.NewDecCoinsFromCoins(commission...))})
 
 	if !commission.IsZero() {
 		accAddr := sdk.AccAddress(valAddr)
 		withdrawAddr := k.GetDelegatorWithdrawAddr(ctx, accAddr)
-		err := k.supplyKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, commission)
+		err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, commission)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +155,7 @@ func (k Keeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddr
 func (k Keeper) GetTotalRewards(ctx sdk.Context) (totalRewards sdk.DecCoins) {
 	k.IterateValidatorOutstandingRewards(ctx,
 		func(_ sdk.ValAddress, rewards types.ValidatorOutstandingRewards) (stop bool) {
-			totalRewards = totalRewards.Add(rewards...)
+			totalRewards = totalRewards.Add(rewards.Rewards...)
 			return false
 		},
 	)
@@ -162,7 +168,7 @@ func (k Keeper) GetTotalRewards(ctx sdk.Context) (totalRewards sdk.DecCoins) {
 // added to the pool. An error is returned if the amount cannot be sent to the
 // module account.
 func (k Keeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.AccAddress) error {
-	if err := k.supplyKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, amount); err != nil {
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, amount); err != nil {
 		return err
 	}
 
